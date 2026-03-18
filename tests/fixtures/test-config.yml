@@ -1,0 +1,9 @@
+gateway:
+  host: "127.0.0.1"
+  port: 0
+models:
+  default: "claude"
+  providers: {}
+channels: {}
+memory:
+  backend: "sqlite"

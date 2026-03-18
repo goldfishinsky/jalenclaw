@@ -2,6 +2,7 @@
 // src/index.ts
 import { Command } from "commander";
 import { registerAuthCommands } from "./cli/auth.js";
+import { startApp } from "./cli/start.js";
 
 const program = new Command();
 program
@@ -12,13 +13,22 @@ program
 // Register subcommands
 registerAuthCommands(program);
 
-// Placeholder commands (to be implemented)
 program
   .command("start")
   .description("Start JalenClaw")
   .option("-d, --daemon", "Run as daemon")
-  .action(() => {
-    console.log("Not yet implemented");
+  .option("-c, --config <path>", "Path to config file")
+  .action(async (opts: { daemon?: boolean; config?: string }) => {
+    try {
+      const ctx = await startApp({
+        daemon: opts.daemon,
+        configPath: opts.config,
+      });
+      console.log(`JalenClaw started on port ${ctx.gateway.port}`);
+    } catch (err) {
+      console.error("Failed to start JalenClaw:", err instanceof Error ? err.message : err);
+      process.exit(1);
+    }
   });
 
 program
