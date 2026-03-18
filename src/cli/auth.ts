@@ -6,7 +6,7 @@ import {
   deleteTokens,
   type OAuthCredentials,
 } from "../auth/token-store.js";
-import { startCallbackServer, parseCallbackUrl } from "../auth/oauth-server.js";
+// oauth-server.ts still available for future use but login now uses paste-code flow
 import { generatePKCE } from "../auth/pkce.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +23,7 @@ const AUTHORIZATION_ENDPOINT =
   "https://console.anthropic.com/oauth/authorize";
 const TOKEN_ENDPOINT = "https://console.anthropic.com/oauth/token";
 const DEFAULT_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback";
 const SCOPES = "org:create_api_key user:profile user:inference";
 
 // --- Exported business logic functions (testable without commander) ---
@@ -206,12 +207,6 @@ export async function refreshFlow(
   return { success: true, message: "Token refreshed successfully." };
 }
 
-// --- Headless detection ---
-
-function isHeadless(): boolean {
-  return !process.env["DISPLAY"] && !!process.env["SSH_TTY"];
-}
-
 function openBrowser(url: string): void {
   const platform = process.platform;
   try {
@@ -235,75 +230,58 @@ export function registerAuthCommands(program: Command): void {
   auth
     .command("login")
     .description("Login with Claude subscription")
-    .option("--manual", "Manual mode: paste callback URL instead of browser")
-    .action(async (options: { manual?: boolean }) => {
-      const manual = options.manual || isHeadless();
-
+    .action(async () => {
       const pkce = generatePKCE();
       const state = randomBytes(16).toString("hex");
 
-      const server = await startCallbackServer();
       const authUrl = buildAuthorizationUrl({
         clientId: DEFAULT_CLIENT_ID,
-        redirectUri: server.redirectUri,
+        redirectUri: REDIRECT_URI,
         codeChallenge: pkce.codeChallenge,
         challengeMethod: pkce.challengeMethod,
         scopes: SCOPES,
         state,
       });
 
-      if (manual) {
-        console.log("\nOpen this URL in your browser to authorize:\n");
-        console.log(`  ${authUrl}\n`);
-        console.log(
-          "After authorizing, paste the full callback URL from your browser address bar:",
-        );
+      console.log("\nOpening browser for authorization...");
+      openBrowser(authUrl);
+      console.log(
+        "\nIf the browser doesn't open, visit this URL:\n",
+      );
+      console.log(`  ${authUrl}\n`);
+      console.log(
+        "After authorizing, you'll see a code on the page. Paste it here:\n",
+      );
 
-        const readline = await import("node:readline");
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
+      const readline = await import("node:readline");
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+      });
+
+      const code = await new Promise<string>((resolve) => {
+        rl.question("> ", (answer) => {
+          rl.close();
+          resolve(answer.trim());
         });
+      });
 
-        const callbackUrl = await new Promise<string>((resolve) => {
-          rl.question("> ", (answer) => {
-            rl.close();
-            resolve(answer.trim());
-          });
-        });
-
-        await server.close();
-
-        const { code } = parseCallbackUrl(callbackUrl);
-        const result = await loginFlow({
-          tokenPath: DEFAULT_TOKEN_PATH,
-          code,
-          codeVerifier: pkce.codeVerifier,
-          redirectUri: server.redirectUri,
-          clientId: DEFAULT_CLIENT_ID,
-        });
-
-        console.log(result.message);
-        process.exitCode = result.success ? 0 : 1;
-      } else {
-        console.log("Opening browser for authorization...");
-        console.log(`\nIf the browser doesn't open, visit:\n  ${authUrl}\n`);
-        openBrowser(authUrl);
-
-        const { code } = await server.waitForCode();
-        await server.close();
-
-        const result = await loginFlow({
-          tokenPath: DEFAULT_TOKEN_PATH,
-          code,
-          codeVerifier: pkce.codeVerifier,
-          redirectUri: server.redirectUri,
-          clientId: DEFAULT_CLIENT_ID,
-        });
-
-        console.log(result.message);
-        process.exitCode = result.success ? 0 : 1;
+      if (!code) {
+        console.log("No code provided. Login cancelled.");
+        process.exitCode = 1;
+        return;
       }
+
+      const result = await loginFlow({
+        tokenPath: DEFAULT_TOKEN_PATH,
+        code,
+        codeVerifier: pkce.codeVerifier,
+        redirectUri: REDIRECT_URI,
+        clientId: DEFAULT_CLIENT_ID,
+      });
+
+      console.log(result.message);
+      process.exitCode = result.success ? 0 : 1;
     });
 
   auth
