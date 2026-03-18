@@ -36,13 +36,13 @@ models:
 
 - `authType: "apikey"` — 现有方案，通过环境变量引用 API Key
 - `authType: "oauth"` — 通过 OAuth 流程获取用户订阅 token
-- 缺省 `authType` 时默认为 `"apikey"`，保持向后兼容
+- `authType` 为必填字段（Zod `discriminatedUnion` 需要显式声明）
 
 Zod schema 使用 discriminated union 校验：`authType: "oauth"` 时不需要 `apiKey`，`authType: "apikey"` 时必须有 `apiKey`。
 
 ### 配置迁移
 
-已有的 `jalenclaw.yml` 中若无 `authType` 字段，`jalenclaw config migrate` 自动补全为 `authType: "apikey"`。从 `oauth` 切换回 `apikey` 时，不自动清除存储的 token（用户可通过 `jalenclaw auth logout` 手动清除）。
+已有的 `jalenclaw.yml` 中若无 `authType` 字段，`jalenclaw config migrate` 自动补全为 `authType: "apikey"`（Zod `discriminatedUnion` 要求该字段必须显式存在）。从 `oauth` 切换回 `apikey` 时，不自动清除存储的 token（用户可通过 `jalenclaw auth logout` 手动清除）。
 
 ## 3. OAuth 流程
 
@@ -213,7 +213,7 @@ const claudeBaseConfig = z.object({
 });
 
 const claudeApiKeyAuth = claudeBaseConfig.extend({
-  authType: z.literal("apikey").default("apikey"),
+  authType: z.literal("apikey"),
   apiKey: z.string().min(1),
 });
 

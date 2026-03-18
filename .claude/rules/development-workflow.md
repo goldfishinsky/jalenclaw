@@ -25,6 +25,7 @@ globs: src/**/*.ts
 - [ ] `pnpm run lint` 无错误
 - [ ] `docs/progress.md` 已更新
 - [ ] 代码已提交
+- [ ] 推送到远程：`git push`
 
 ## 不要做的事
 
