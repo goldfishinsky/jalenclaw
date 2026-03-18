@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JalenClaw Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-card: #1c2128;
+      --border: #30363d;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+      --purple: #bc8cff;
+      --radius: 8px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    #uptime {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      padding: 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    section {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    section h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    #overview {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    #overview h2 {
+      grid-column: 1 / -1;
+    }
+
+    .stat-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .stat-card .label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-card .value {
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 4px;
+    }
+
+    .channel-list {
+      list-style: none;
+    }
+
+    .channel-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .channel-list li:last-child {
+      border-bottom: none;
+    }
+
+    .channel-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.disconnected { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .status-dot.connecting { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+
+    .msg-count {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    #messages {
+      grid-column: 1 / -1;
+    }
+
+    .message-feed {
+      max-height: 350px;
+      overflow-y: auto;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+    }
+
+    .message-feed::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .message-feed::-webkit-scrollbar-track {
+      background: var(--bg-secondary);
+    }
+
+    .message-feed::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .message-entry {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+    }
+
+    .message-entry:hover {
+      background: var(--bg-secondary);
+    }
+
+    .msg-time {
+      color: var(--text-secondary);
+      flex-shrink: 0;
+      min-width: 70px;
+    }
+
+    .msg-dir {
+      flex-shrink: 0;
+      min-width: 20px;
+      font-weight: 600;
+    }
+
+    .msg-dir.inbound { color: var(--green); }
+    .msg-dir.outbound { color: var(--accent); }
+
+    .msg-channel {
+      color: var(--purple);
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+
+    .msg-preview {
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .empty-state {
+      color: var(--text-secondary);
+      text-align: center;
+      padding: 32px;
+      font-size: 14px;
+    }
+
+    /* LLM Usage bar chart */
+    .bar-chart {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .bar-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+    }
+
+    .bar-label .provider-name {
+      font-weight: 600;
+    }
+
+    .bar-label .bar-stats {
+      color: var(--text-secondary);
+    }
+
+    .bar-track {
+      height: 8px;
+      background: var(--bg-secondary);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .bar-fill.provider-openai { background: var(--green); }
+    .bar-fill.provider-anthropic { background: var(--purple); }
+    .bar-fill.provider-google { background: var(--yellow); }
+
+    .connection-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+    }
+
+    .connection-badge .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .connection-badge .dot.live { background: var(--green); }
+    .connection-badge .dot.dead { background: var(--red); }
+
+    @media (max-width: 768px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>JalenClaw</h1>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <span class="connection-badge">
+        <span class="dot" id="ws-dot"></span>
+        <span id="ws-status">connecting</span>
+      </span>
+      <span id="uptime">--</span>
+    </div>
+  </header>
+  <main>
+    <section id="overview">
+      <h2>System Overview</h2>
+      <div class="stat-card">
+        <div class="label">Uptime</div>
+        <div class="value" id="stat-uptime">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Memory (MB)</div>
+        <div class="value" id="stat-memory">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Channels</div>
+        <div class="value" id="stat-channels">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Sessions</div>
+        <div class="value" id="stat-sessions">0</div>
+      </div>
+    </section>
+
+    <section id="channels">
+      <h2>Channel Status</h2>
+      <ul class="channel-list" id="channel-list">
+        <li class="empty-state">No channels connected</li>
+      </ul>
+    </section>
+
+    <section id="llm-usage">
+      <h2>LLM Usage</h2>
+      <div class="bar-chart" id="llm-chart">
+        <div class="empty-state">No LLM usage recorded</div>
+      </div>
+    </section>
+
+    <section id="messages">
+      <h2>Message Feed</h2>
+      <div class="message-feed" id="message-feed">
+        <div class="empty-state">Waiting for messages...</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const API_KEY = new URLSearchParams(window.location.search).get("api_key") || "";
+
+    function formatUptime(seconds) {
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      if (d > 0) return d + "d " + h + "h " + m + "m";
+      if (h > 0) return h + "h " + m + "m " + s + "s";
+      return m + "m " + s + "s";
+    }
+
+    function formatTime(ts) {
+      const d = new Date(ts);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    }
+
+    function providerClass(name) {
+      const n = name.toLowerCase();
+      if (n.includes("openai")) return "provider-openai";
+      if (n.includes("anthropic") || n.includes("claude")) return "provider-anthropic";
+      if (n.includes("google") || n.includes("gemini")) return "provider-google";
+      return "";
+    }
+
+    async function fetchData(endpoint) {
+      const headers = {};
+      if (API_KEY) headers["X-Api-Key"] = API_KEY;
+      const res = await fetch(endpoint, { headers });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return res.json();
+    }
+
+    function renderStatus(data) {
+      document.getElementById("stat-uptime").textContent = formatUptime(data.uptime);
+      document.getElementById("stat-memory").textContent = data.memoryUsage;
+      document.getElementById("stat-channels").textContent = data.channels.length;
+      document.getElementById("stat-sessions").textContent = data.sessions.length;
+      document.getElementById("uptime").textContent = "up " + formatUptime(data.uptime);
+
+      // Channels
+      const list = document.getElementById("channel-list");
+      if (data.channels.length === 0) {
+        list.innerHTML = '<li class="empty-state">No channels connected</li>';
+      } else {
+        list.innerHTML = data.channels.map(function(ch) {
+          return '<li>' +
+            '<div class="channel-info">' +
+            '<span class="status-dot ' + ch.status + '"></span>' +
+            '<span>' + ch.name + '</span>' +
+            '</div>' +
+            '<span class="msg-count">' + ch.messageCount + ' msgs</span>' +
+            '</li>';
+        }).join("");
+      }
+
+      // LLM Usage
+      const chart = document.getElementById("llm-chart");
+      const providers = Object.entries(data.llmUsage);
+      if (providers.length === 0) {
+        chart.innerHTML = '<div class="empty-state">No LLM usage recorded</div>';
+      } else {
+        const maxTokens = Math.max(...providers.map(function(p) { return p[1].tokens; }));
+        chart.innerHTML = providers.map(function(entry) {
+          const name = entry[0];
+          const info = entry[1];
+          const pct = maxTokens > 0 ? Math.round((info.tokens / maxTokens) * 100) : 0;
+          return '<div class="bar-row">' +
+            '<div class="bar-label">' +
+            '<span class="provider-name">' + name + '</span>' +
+            '<span class="bar-stats">' + info.tokens.toLocaleString() + ' tokens / ' + info.requests + ' reqs</span>' +
+            '</div>' +
+            '<div class="bar-track">' +
+            '<div class="bar-fill ' + providerClass(name) + '" style="width: ' + pct + '%"></div>' +
+            '</div>' +
+            '</div>';
+        }).join("");
+      }
+    }
+
+    function renderMessages(messages) {
+      const feed = document.getElementById("message-feed");
+      if (messages.length === 0) {
+        feed.innerHTML = '<div class="empty-state">Waiting for messages...</div>';
+        return;
+      }
+      feed.innerHTML = messages.map(function(msg) {
+        const arrow = msg.direction === "inbound" ? "\u2192" : "\u2190";
+        return '<div class="message-entry">' +
+          '<span class="msg-time">' + formatTime(msg.timestamp) + '</span>' +
+          '<span class="msg-dir ' + msg.direction + '">' + arrow + '</span>' +
+          '<span class="msg-channel">' + msg.channel + '</span>' +
+          '<span class="msg-preview">' + (msg.preview || "--") + '</span>' +
+          '</div>';
+      }).join("");
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    async function refresh() {
+      try {
+        const data = await fetchData("/api/status");
+        renderStatus(data);
+        const msgs = await fetchData("/api/messages/recent");
+        renderMessages(msgs);
+      } catch (e) {
+        console.error("Refresh failed:", e);
+      }
+    }
+
+    // WebSocket for live messages
+    function connectWS() {
+      const proto = location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = proto + "//" + location.host + "?api_key=" + encodeURIComponent(API_KEY);
+      const dot = document.getElementById("ws-dot");
+      const status = document.getElementById("ws-status");
+
+      let ws;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        dot.className = "dot dead";
+        status.textContent = "error";
+        return;
+      }
+
+      ws.onopen = function() {
+        dot.className = "dot live";
+        status.textContent = "live";
+      };
+
+      ws.onclose = function() {
+        dot.className = "dot dead";
+        status.textContent = "disconnected";
+        setTimeout(connectWS, 3000);
+      };
+
+      ws.onerror = function() {
+        dot.className = "dot dead";
+        status.textContent = "error";
+      };
+
+      ws.onmessage = function(event) {
+        try {
+          var msg = JSON.parse(event.data);
+          if (msg.type === "message") {
+            var feed = document.getElementById("message-feed");
+            var empty = feed.querySelector(".empty-state");
+            if (empty) feed.innerHTML = "";
+
+            var html = '<div class="message-entry">' +
+              '<span class="msg-time">' + formatTime(msg.timestamp || Date.now()) + '</span>' +
+              '<span class="msg-dir ' + (msg.direction || "inbound") + '">' +
+              (msg.direction === "outbound" ? "\u2190" : "\u2192") + '</span>' +
+              '<span class="msg-channel">' + (msg.channel || "--") + '</span>' +
+              '<span class="msg-preview">' + (msg.preview || "--") + '</span>' +
+              '</div>';
+            feed.innerHTML += html;
+            feed.scrollTop = feed.scrollHeight;
+          }
+        } catch (e) { /* ignore non-JSON */ }
+      };
+    }
+
+    // Initial load + auto-refresh
+    refresh();
+    setInterval(refresh, 5000);
+    connectWS();
+  </script>
+</body>
+</html>
