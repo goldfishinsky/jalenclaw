@@ -3,6 +3,7 @@
 import { Command } from "commander";
 import { registerAuthCommands } from "./cli/auth.js";
 import { startApp } from "./cli/start.js";
+import { checkConfigExists, runSetupWizard } from "./cli/setup.js";
 
 const program = new Command();
 program
@@ -51,5 +52,20 @@ program
   .action(() => {
     console.log("Not yet implemented");
   });
+
+// Default action: no subcommand → auto-detect setup or start
+program.action(async () => {
+  const configExists = await checkConfigExists();
+  if (!configExists) {
+    await runSetupWizard();
+  }
+  try {
+    const ctx = await startApp();
+    console.log(`JalenClaw started on port ${ctx.gateway.port}`);
+  } catch (err) {
+    console.error("Failed to start JalenClaw:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+});
 
 program.parse();
