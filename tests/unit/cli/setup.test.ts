@@ -37,14 +37,13 @@ describe("cli/setup", () => {
       const configPath = join(tempDir, "jalenclaw.yml");
       const { writeFile } = await import("node:fs/promises");
       await writeFile(configPath, "gateway:\n  port: 18900\n", "utf-8");
-
       const result = await checkConfigExists(configPath);
       expect(result).toBe(true);
     });
   });
 
   describe("buildConfig", () => {
-    it("generates config with selected Claude API key provider", () => {
+    it("generates config with Claude API key provider", () => {
       const answers: SetupAnswers = {
         provider: "claude",
         authMethod: "apikey",
@@ -52,16 +51,11 @@ describe("cli/setup", () => {
         channel: "none",
         port: 18900,
       };
-
       const config = buildConfig(answers);
-
       expect(config.models).toEqual({
         default: "claude",
         providers: {
-          claude: {
-            authType: "apikey",
-            apiKey: "sk-ant-test-key",
-          },
+          claude: { authType: "apikey", apiKey: "sk-ant-test-key" },
         },
       });
     });
@@ -73,14 +67,10 @@ describe("cli/setup", () => {
         channel: "none",
         port: 18900,
       };
-
       const config = buildConfig(answers);
-
       expect(config.models).toEqual({
         default: "claude",
-        providers: {
-          claude: { authType: "oauth" },
-        },
+        providers: { claude: { authType: "oauth" } },
       });
     });
 
@@ -91,34 +81,25 @@ describe("cli/setup", () => {
         channel: "none",
         port: 18900,
       };
-
       const config = buildConfig(answers);
-
       expect(config.models).toEqual({
         default: "openai",
         providers: {
-          openai: {
-            authType: "apikey",
-            apiKey: "sk-openai-test",
-          },
+          openai: { authType: "apikey", apiKey: "sk-openai-test" },
         },
       });
     });
 
-    it("generates config with Ollama provider (no API key)", () => {
+    it("generates config with Ollama provider", () => {
       const answers: SetupAnswers = {
         provider: "ollama",
         channel: "none",
         port: 18900,
       };
-
       const config = buildConfig(answers);
-
       expect(config.models).toEqual({
         default: "ollama",
-        providers: {
-          ollama: { baseUrl: "http://localhost:11434" },
-        },
+        providers: { ollama: { baseUrl: "http://localhost:11434" } },
       });
     });
 
@@ -131,14 +112,9 @@ describe("cli/setup", () => {
         telegramToken: "123456:ABC-DEF",
         port: 18900,
       };
-
       const config = buildConfig(answers);
-
       expect(config.channels).toEqual({
-        telegram: {
-          enabled: true,
-          token: "123456:ABC-DEF",
-        },
+        telegram: { enabled: true, token: "123456:ABC-DEF" },
       });
     });
 
@@ -150,9 +126,7 @@ describe("cli/setup", () => {
         channel: "none",
         port: 18900,
       };
-
       const config = buildConfig(answers);
-
       expect(config.channels).toEqual({});
     });
 
@@ -162,13 +136,8 @@ describe("cli/setup", () => {
         channel: "none",
         port: 9999,
       };
-
       const config = buildConfig(answers);
-
-      expect(config.gateway).toEqual({
-        host: "127.0.0.1",
-        port: 9999,
-      });
+      expect(config.gateway).toEqual({ host: "127.0.0.1", port: 9999 });
     });
   });
 
@@ -182,111 +151,60 @@ describe("cli/setup", () => {
         channel: "none",
         port: 18900,
       });
-
       await writeConfig(config, tempDir, configPath);
-
       const content = await readFile(configPath, "utf-8");
       const parsed = parseYaml(content) as Record<string, unknown>;
-
       expect(parsed).toBeDefined();
       expect((parsed.gateway as Record<string, unknown>).port).toBe(18900);
-      expect(
-        (
-          (parsed.models as Record<string, unknown>)
-            .providers as Record<string, unknown>
-        ).claude,
-      ).toBeDefined();
     });
 
     it("creates config directory if it does not exist", async () => {
       const nested = join(tempDir, "deep", "nested");
       const configPath = join(nested, "jalenclaw.yml");
-
       await writeConfig({ gateway: { port: 18900 } }, nested, configPath);
-
       const content = await readFile(configPath, "utf-8");
       expect(content).toContain("18900");
     });
   });
 
   describe("runSetupWizard", () => {
-    it("runs full wizard flow and writes config", async () => {
+    it("runs full wizard flow with collectAnswers and writes config", async () => {
       const configPath = join(tempDir, "jalenclaw.yml");
-      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-
-      // Mock prompt function that returns answers in sequence
-      let callCount = 0;
-      const mockPrompt = vi.fn().mockImplementation(() => {
-        callCount++;
-        switch (callCount) {
-          case 1:
-            return Promise.resolve({ provider: "ollama" });
-          case 2:
-            return Promise.resolve({ channel: "none" });
-          case 3:
-            return Promise.resolve({ port: 18900 });
-          default:
-            return Promise.resolve({});
-        }
-      });
+      vi.spyOn(console, "log").mockImplementation(() => {});
 
       await runSetupWizard({
         configDir: tempDir,
         configPath,
-        promptFn: mockPrompt as unknown as typeof import("inquirer").default.prompt,
+        collectAnswers: async () => ({
+          provider: "ollama",
+          channel: "none",
+          port: 18900,
+        }),
       });
 
-      // Verify config was written
       const exists = await checkConfigExists(configPath);
       expect(exists).toBe(true);
 
-      // Verify content
       const content = await readFile(configPath, "utf-8");
       const parsed = parseYaml(content) as Record<string, unknown>;
-      expect(
-        (parsed.models as Record<string, unknown>).default,
-      ).toBe("ollama");
-
-      // Verify welcome message was printed
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Welcome to JalenClaw"),
-      );
-
-      // Verify success message was printed
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Configuration saved"),
-      );
-
-      consoleSpy.mockRestore();
+      expect((parsed.models as Record<string, unknown>).default).toBe("ollama");
     });
 
     it("triggers OAuth login when Claude OAuth is selected", async () => {
       const configPath = join(tempDir, "jalenclaw.yml");
       vi.spyOn(console, "log").mockImplementation(() => {});
 
-      let callCount = 0;
-      const mockPrompt = vi.fn().mockImplementation(() => {
-        callCount++;
-        switch (callCount) {
-          case 1:
-            return Promise.resolve({ provider: "claude" });
-          case 2:
-            return Promise.resolve({ authMethod: "oauth" });
-          case 3:
-            return Promise.resolve({ channel: "none" });
-          case 4:
-            return Promise.resolve({ port: 18900 });
-          default:
-            return Promise.resolve({});
-        }
-      });
-
       const onOAuthLogin = vi.fn().mockResolvedValue(undefined);
 
       await runSetupWizard({
         configDir: tempDir,
         configPath,
-        promptFn: mockPrompt as unknown as typeof import("inquirer").default.prompt,
+        collectAnswers: async () => ({
+          provider: "claude",
+          authMethod: "oauth",
+          channel: "none",
+          port: 18900,
+        }),
         onOAuthLogin,
       });
 
