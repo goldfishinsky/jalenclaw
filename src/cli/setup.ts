@@ -4,6 +4,7 @@ import { writeFile, mkdir, access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
+import { readTokens } from "../auth/token-store.js";
 
 const CONFIG_DIR = join(homedir(), ".jalenclaw");
 const CONFIG_PATH = join(CONFIG_DIR, "jalenclaw.yml");
@@ -118,7 +119,7 @@ export async function runSetupWizard(options?: {
   configDir?: string;
   configPath?: string;
   collectAnswers?: () => Promise<SetupAnswers>;
-  onOAuthLogin?: () => Promise<void>;
+  onOAuthLogin?: () => Promise<boolean>;
 }): Promise<void> {
   const configDir = options?.configDir ?? CONFIG_DIR;
   const configPath = options?.configPath ?? CONFIG_PATH;
@@ -129,54 +130,36 @@ export async function runSetupWizard(options?: {
   console.log("Let's get you set up.");
   console.log("");
 
-  const answers = options?.collectAnswers
-    ? await options.collectAnswers()
-    : await collectAnswersInteractive();
-
-  const config = buildConfig(answers);
-  await writeConfig(config, configDir, configPath);
-
-  console.log("");
-  console.log(`\u2705 Configuration saved to ${configPath}`);
-
-  if (answers.provider === "claude" && answers.authMethod === "oauth") {
-    console.log("");
-    console.log("\u{1F510} Launching OAuth login...");
-    if (options?.onOAuthLogin) {
+  if (options?.collectAnswers) {
+    // Test mode: collect all answers at once
+    const answers = await options.collectAnswers();
+    const config = buildConfig(answers);
+    await writeConfig(config, configDir, configPath);
+    if (answers.provider === "claude" && answers.authMethod === "oauth" && options.onOAuthLogin) {
       await options.onOAuthLogin();
-    } else {
-      const { execSync } = await import("node:child_process");
-      try {
-        execSync("node ./dist/index.js auth login", {
-          stdio: "inherit",
-          cwd: process.cwd(),
-        });
-      } catch {
-        console.log("\u26A0\uFE0F  OAuth login skipped. Run 'jalenclaw auth login' later.");
-      }
     }
+    console.log(`\u2705 Configuration saved to ${configPath}`);
+    console.log("\u{1F680} Starting JalenClaw...\n");
+    return;
   }
 
-  console.log("\u{1F680} Starting JalenClaw...");
-  console.log("");
-}
+  // Interactive mode: step by step, authenticate before continuing
 
-async function collectAnswersInteractive(): Promise<SetupAnswers> {
-  // 1. Choose AI provider
+  // Step 1: Choose provider
   const provider = await select<AIProvider>({
     message: "Choose your AI provider:",
     choices: [
-      { name: "Claude (Anthropic) — supports API Key and subscription", value: "claude" },
+      { name: "Claude (Anthropic) \u2014 supports API Key and subscription", value: "claude" },
       { name: "OpenAI (GPT-4o)", value: "openai" },
       { name: "DeepSeek", value: "deepseek" },
       { name: "Ollama (local models)", value: "ollama" },
     ],
   });
 
+  // Step 2: Authenticate immediately
   let authMethod: AuthMethod | undefined;
   let apiKey: string | undefined;
 
-  // 2. Authentication
   if (provider === "claude") {
     authMethod = await select<AuthMethod>({
       message: "Authentication method:",
@@ -186,7 +169,15 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
       ],
     });
 
-    if (authMethod === "apikey") {
+    if (authMethod === "oauth") {
+      console.log("\n\u{1F510} Starting OAuth login...\n");
+      const success = await doOAuthLogin(options?.onOAuthLogin);
+      if (!success) {
+        console.log("\n\u274C OAuth login failed. Please try again.\n");
+        process.exit(1);
+      }
+      console.log("\n\u2705 Authentication successful!\n");
+    } else {
       apiKey = await password({
         message: "Enter your Anthropic API key:",
         mask: "*",
@@ -200,8 +191,9 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
       validate: (val) => (val.length > 0 ? true : "API key cannot be empty"),
     });
   }
+  // Ollama needs no auth
 
-  // 3. Channel
+  // Step 3: Channel (only after auth succeeds)
   const channel = await select<Channel>({
     message: "Enable a messaging channel?",
     choices: [
@@ -214,7 +206,6 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
   });
 
   let telegramToken: string | undefined;
-
   if (channel === "telegram") {
     telegramToken = await password({
       message: "Enter your Telegram bot token:",
@@ -222,12 +213,11 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
       validate: (val) => (val.length > 0 ? true : "Token cannot be empty"),
     });
   }
-
   if (channel === "whatsapp") {
     console.log("\n\u2139\uFE0F  WhatsApp will be configured on first connection.\n");
   }
 
-  // 4. Port
+  // Step 4: Port
   const port = await number({
     message: "Gateway port:",
     default: 18900,
@@ -239,5 +229,28 @@ async function collectAnswersInteractive(): Promise<SetupAnswers> {
     },
   }) ?? 18900;
 
-  return { provider, authMethod, apiKey, channel, telegramToken, port };
+  // Save config
+  const answers: SetupAnswers = { provider, authMethod, apiKey, channel, telegramToken, port };
+  const config = buildConfig(answers);
+  await writeConfig(config, configDir, configPath);
+
+  console.log(`\n\u2705 Configuration saved to ${configPath}`);
+  console.log("\u{1F680} Starting JalenClaw...\n");
+}
+
+async function doOAuthLogin(mockLogin?: () => Promise<boolean>): Promise<boolean> {
+  if (mockLogin) return mockLogin();
+
+  try {
+    const { execSync } = await import("node:child_process");
+    execSync("node ./dist/index.js auth login", {
+      stdio: "inherit",
+      cwd: process.cwd(),
+    });
+    const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
+    const tokens = await readTokens(tokenPath);
+    return tokens !== null;
+  } catch {
+    return false;
+  }
 }
