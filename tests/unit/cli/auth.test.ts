@@ -95,7 +95,7 @@ describe("cli/auth", () => {
   describe("buildAuthorizationUrl", () => {
     it("generates correct authorization URL with all parameters", () => {
       const url = buildAuthorizationUrl({
-        clientId: "claude-code",
+        clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
         redirectUri: "http://127.0.0.1:9999/callback",
         codeChallenge: "test-challenge",
         challengeMethod: "S256",
@@ -104,9 +104,9 @@ describe("cli/auth", () => {
       });
 
       const parsed = new URL(url);
-      expect(parsed.origin).toBe("https://claude.ai");
+      expect(parsed.origin).toBe("https://console.anthropic.com");
       expect(parsed.pathname).toBe("/oauth/authorize");
-      expect(parsed.searchParams.get("client_id")).toBe("claude-code");
+      expect(parsed.searchParams.get("client_id")).toBe("9d1c250a-e61b-44d9-88ed-5944d1962f5e");
       expect(parsed.searchParams.get("redirect_uri")).toBe(
         "http://127.0.0.1:9999/callback",
       );
@@ -146,7 +146,7 @@ describe("cli/auth", () => {
         code: "test-auth-code",
         codeVerifier: "test-verifier",
         redirectUri: "http://127.0.0.1:9999/callback",
-        clientId: "claude-code",
+        clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
         fetchFn: mockFetch,
       });
 
@@ -154,7 +154,7 @@ describe("cli/auth", () => {
       expect(mockFetch).toHaveBeenCalledOnce();
 
       const [url, options] = mockFetch.mock.calls[0];
-      expect(url).toBe("https://claude.ai/oauth/token");
+      expect(url).toBe("https://console.anthropic.com/oauth/token");
       expect(options.method).toBe("POST");
 
       const body = new URLSearchParams(options.body);
@@ -164,7 +164,7 @@ describe("cli/auth", () => {
       expect(body.get("redirect_uri")).toBe(
         "http://127.0.0.1:9999/callback",
       );
-      expect(body.get("client_id")).toBe("claude-code");
+      expect(body.get("client_id")).toBe("9d1c250a-e61b-44d9-88ed-5944d1962f5e");
 
       // Verify tokens were persisted
       const { readTokens } = await import("../../../src/auth/token-store.js");
@@ -192,7 +192,7 @@ describe("cli/auth", () => {
 
       const result = await refreshFlow({
         tokenPath,
-        clientId: "claude-code",
+        clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
         fetchFn: mockFetch,
       });
 
@@ -200,13 +200,13 @@ describe("cli/auth", () => {
       expect(mockFetch).toHaveBeenCalledOnce();
 
       const [url, options] = mockFetch.mock.calls[0];
-      expect(url).toBe("https://claude.ai/oauth/token");
+      expect(url).toBe("https://console.anthropic.com/oauth/token");
       expect(options.method).toBe("POST");
 
       const body = new URLSearchParams(options.body);
       expect(body.get("grant_type")).toBe("refresh_token");
       expect(body.get("refresh_token")).toBe(validTokens.refreshToken);
-      expect(body.get("client_id")).toBe("claude-code");
+      expect(body.get("client_id")).toBe("9d1c250a-e61b-44d9-88ed-5944d1962f5e");
 
       // Verify updated tokens were persisted
       const { readTokens } = await import("../../../src/auth/token-store.js");
@@ -220,7 +220,7 @@ describe("cli/auth", () => {
 
       const result = await refreshFlow({
         tokenPath,
-        clientId: "claude-code",
+        clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
         fetchFn: mockFetch,
       });
 

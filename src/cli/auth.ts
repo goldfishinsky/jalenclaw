@@ -19,10 +19,11 @@ const DEFAULT_TOKEN_PATH = join(
   "auth",
   "oauth-credentials.json",
 );
-const AUTHORIZATION_ENDPOINT = "https://claude.ai/oauth/authorize";
-const TOKEN_ENDPOINT = "https://claude.ai/oauth/token";
-const DEFAULT_CLIENT_ID = "claude-code";
-const SCOPES = "user:inference user:profile";
+const AUTHORIZATION_ENDPOINT =
+  "https://console.anthropic.com/oauth/authorize";
+const TOKEN_ENDPOINT = "https://console.anthropic.com/oauth/token";
+const DEFAULT_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const SCOPES = "org:create_api_key user:profile user:inference";
 
 // --- Exported business logic functions (testable without commander) ---
 
