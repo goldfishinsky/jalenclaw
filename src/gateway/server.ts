@@ -53,18 +53,29 @@ export function createGateway(options: GatewayOptions): Gateway {
     },
   };
 
+  // Paths exempt from rate limiting (dashboard UI and its API calls)
+  const RATE_LIMIT_EXEMPT = new Set(["/health", "/dashboard", "/favicon.ico"]);
+  const RATE_LIMIT_EXEMPT_PREFIXES = ["/api/"];
+
+  function isRateLimitExempt(pathname: string): boolean {
+    return RATE_LIMIT_EXEMPT.has(pathname) || RATE_LIMIT_EXEMPT_PREFIXES.some(p => pathname.startsWith(p));
+  }
+
   // --- HTTP Server ---
   const server: Server = createServer((req, res) => {
     const ip = req.socket.remoteAddress ?? "unknown";
+    const pathname = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`).pathname;
 
-    // Rate limit check
-    const rateResult = rateLimiter.check(ip);
-    if (!rateResult.allowed) {
-      res.statusCode = 429;
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Retry-After", String(Math.ceil((rateResult.retryAfterMs ?? 1000) / 1000)));
-      res.end(JSON.stringify({ error: "Too Many Requests" }));
-      return;
+    // Rate limit check (skip for dashboard/API paths)
+    if (!isRateLimitExempt(pathname)) {
+      const rateResult = rateLimiter.check(ip);
+      if (!rateResult.allowed) {
+        res.statusCode = 429;
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Retry-After", String(Math.ceil((rateResult.retryAfterMs ?? 1000) / 1000)));
+        res.end(JSON.stringify({ error: "Too Many Requests" }));
+        return;
+      }
     }
 
     // Auth middleware
