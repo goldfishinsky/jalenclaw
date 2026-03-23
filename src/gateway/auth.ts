@@ -3,7 +3,8 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 
 /** Paths that bypass authentication. */
-const PUBLIC_PATHS = new Set(["/health"]);
+const PUBLIC_PATHS = new Set(["/health", "/dashboard"]);
+const PUBLIC_PREFIXES = ["/api/"];
 
 export type NextFn = () => void;
 
@@ -21,7 +22,7 @@ export function createAuthMiddleware(
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
     // Public endpoints skip auth
-    if (PUBLIC_PATHS.has(url.pathname)) {
+    if (PUBLIC_PATHS.has(url.pathname) || PUBLIC_PREFIXES.some(p => url.pathname.startsWith(p))) {
       next();
       return;
     }
