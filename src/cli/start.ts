@@ -182,6 +182,53 @@ function createStubProvider(): LLMProvider {
 }
 
 /**
+ * Create a channel adapter based on channel name and config.
+ */
+async function createChannelAdapter(
+  channelName: string,
+  channelConfig: Record<string, unknown>,
+  logger: Logger,
+): Promise<import("../channels/interface.js").ChannelAdapter | null> {
+  const token = channelConfig.token as string | undefined;
+
+  switch (channelName) {
+    case "telegram": {
+      if (!token) {
+        logger.error("channel-missing-token", { channel: "telegram" });
+        return null;
+      }
+      const { TelegramAdapter } = await import("../channels/telegram/adapter.js");
+      return new TelegramAdapter(token);
+    }
+    case "whatsapp": {
+      const { WhatsAppAdapter } = await import("../channels/whatsapp/adapter.js");
+      return new WhatsAppAdapter({});
+    }
+    case "slack": {
+      const slackToken = token;
+      const appToken = channelConfig.appToken as string | undefined;
+      const signingSecret = channelConfig.signingSecret as string | undefined;
+      if (!slackToken || !appToken || !signingSecret) {
+        logger.error("channel-missing-config", { channel: "slack", required: "token, appToken, signingSecret" });
+        return null;
+      }
+      const { SlackAdapter } = await import("../channels/slack/adapter.js");
+      return new SlackAdapter({ token: slackToken, appToken, signingSecret });
+    }
+    case "discord": {
+      if (!token) {
+        logger.error("channel-missing-token", { channel: "discord" });
+        return null;
+      }
+      const { DiscordAdapter } = await import("../channels/discord/adapter.js");
+      return new DiscordAdapter({ token });
+    }
+    default:
+      return null;
+  }
+}
+
+/**
  * Boot the full JalenClaw application.
  */
 export async function startApp(options?: StartOptions): Promise<AppContext> {
@@ -376,25 +423,58 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
   await gateway.start();
   logger.info("gateway-started", { host: config.gateway.host, port: gateway.port });
 
-  // 13. Start channel adapter child processes for enabled channels
+  // 13. Start channel adapters in-process for enabled channels
   const enabledChannels = Object.entries(config.channels).filter(
     ([, channelConfig]) => channelConfig.enabled,
   );
 
-  for (const [channelName] of enabledChannels) {
+  const activeAdapters: Array<import("../channels/interface.js").ChannelAdapter> = [];
+
+  for (const [channelName, channelConfig] of enabledChannels) {
     logger.info("starting-channel", { channel: channelName });
-    // Channel adapters are expected at dist/channels/<name>/adapter.js
-    const scriptPath = join(
-      import.meta.url.replace("file://", "").replace(/\/cli\/start\.(ts|js)$/, ""),
-      "channels",
-      channelName,
-      "adapter.js",
-    );
     try {
-      await processManager.start(channelName, scriptPath);
+      const adapter = await createChannelAdapter(channelName, channelConfig, logger);
+      if (!adapter) {
+        logger.warn("channel-unsupported", { channel: channelName });
+        continue;
+      }
+
+      // Wire inbound: channel message → router → agent → response back to channel
+      adapter.onMessage((inboundMsg) => {
+        messagesReceived.inc(1, { channel: channelName });
+        dashboardApi.recordMessage("inbound", channelName, inboundMsg.content.text?.slice(0, 100));
+        const startTime = Date.now();
+        const groupId = inboundMsg.groupId ?? inboundMsg.senderId;
+
+        (async () => {
+          let fullResponse = "";
+          try {
+            for await (const chunk of agent.handleMessage(groupId, inboundMsg.content.text ?? "")) {
+              fullResponse += chunk;
+            }
+            messageLatency.observe(Date.now() - startTime);
+
+            if (fullResponse.length > 0) {
+              // Send response back via the channel
+              const target = inboundMsg.groupId ?? inboundMsg.senderId;
+              await adapter.sendMessage(target, { text: fullResponse });
+              messagesSent.inc(1, { channel: channelName });
+              dashboardApi.recordMessage("outbound", channelName, fullResponse.slice(0, 100));
+              dashboardApi.updateSession(groupId, undefined);
+            }
+          } catch (err) {
+            logger.error("channel-message-error", { channel: channelName, error: String(err), groupId });
+          }
+        })();
+      });
+
+      await adapter.connect();
+      activeAdapters.push(adapter);
+      dashboardApi.updateChannelStatus(channelName, "connected");
       logger.info("channel-started", { channel: channelName });
     } catch (err) {
       logger.error("channel-start-failed", { channel: channelName, error: String(err) });
+      dashboardApi.updateChannelStatus(channelName, "error");
     }
   }
 
@@ -407,6 +487,15 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
     logger.info("shutting-down");
 
     healthChecker.stopMonitoring();
+
+    // Disconnect channel adapters
+    for (const adapter of activeAdapters) {
+      try {
+        await adapter.disconnect();
+      } catch (err) {
+        logger.error("channel-disconnect-error", { channel: adapter.name, error: String(err) });
+      }
+    }
 
     try {
       await processManager.stopAll();
