@@ -40,6 +40,19 @@ async function getText(url: string): Promise<{ status: number; body: string; con
   };
 }
 
+async function postJson(
+  url: string,
+  data: unknown,
+): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  const body = await res.json();
+  return { status: res.status, body };
+}
+
 describe("Dashboard API", () => {
   let server: Server | undefined;
   let api: DashboardApi;
@@ -55,7 +68,7 @@ describe("Dashboard API", () => {
   async function setup(): Promise<void> {
     api = createDashboardApi();
     const result = await startTestServer((req, res) => {
-      if (serveDashboard(req, res)) return;
+      if (serveDashboard(req, res, "test-key")) return;
       if (api.handleRequest(req, res)) return;
       res.statusCode = 404;
       res.end("Not Found");
@@ -204,5 +217,140 @@ describe("Dashboard API", () => {
     const channels = body as Array<{ name: string; status: string }>;
     expect(channels).toHaveLength(1);
     expect(channels[0].status).toBe("connected");
+  });
+
+  it("GET /api/config returns sanitized config", async () => {
+    await setup();
+    api.setConfig({
+      gateway: { host: "127.0.0.1", port: 18900 },
+      models: { default: "claude", providers: ["claude"] },
+      channels: { telegram: { enabled: true } },
+      memory: { backend: "auto" },
+    });
+
+    const { status, body } = await getJson(`http://127.0.0.1:${port}/api/config`);
+    expect(status).toBe(200);
+
+    const data = body as Record<string, unknown>;
+    expect(data).toHaveProperty("gateway");
+    expect(data).toHaveProperty("models");
+    expect(data).toHaveProperty("channels");
+    expect(data).toHaveProperty("memory");
+    expect((data.gateway as Record<string, unknown>).host).toBe("127.0.0.1");
+  });
+
+  it("setConfig stores config", async () => {
+    await setup();
+    api.setConfig({ foo: "bar" });
+
+    const { body: first } = await getJson(`http://127.0.0.1:${port}/api/config`);
+    expect((first as Record<string, unknown>).foo).toBe("bar");
+
+    api.setConfig({ baz: 42 });
+    const { body: second } = await getJson(`http://127.0.0.1:${port}/api/config`);
+    expect((second as Record<string, unknown>).baz).toBe(42);
+    expect((second as Record<string, unknown>).foo).toBeUndefined();
+  });
+
+  it("GET /api/sessions/:groupId returns session messages", async () => {
+    await setup();
+    api.addSessionMessage("webchat-123", "user", "hello");
+    api.addSessionMessage("webchat-123", "assistant", "hi there");
+
+    const { status, body } = await getJson(`http://127.0.0.1:${port}/api/sessions/webchat-123`);
+    expect(status).toBe(200);
+
+    const data = body as { groupId: string; messages: Array<{ role: string; content: string }> };
+    expect(data.groupId).toBe("webchat-123");
+    expect(data.messages).toHaveLength(2);
+    expect(data.messages[0]).toMatchObject({ role: "user", content: "hello" });
+    expect(data.messages[1]).toMatchObject({ role: "assistant", content: "hi there" });
+  });
+
+  it("GET /api/sessions/:groupId returns empty messages for unknown group", async () => {
+    await setup();
+    const { status, body } = await getJson(`http://127.0.0.1:${port}/api/sessions/unknown-group`);
+    expect(status).toBe(200);
+
+    const data = body as { groupId: string; messages: unknown[] };
+    expect(data.groupId).toBe("unknown-group");
+    expect(data.messages).toHaveLength(0);
+  });
+
+  it("addSessionMessage stores messages per group", async () => {
+    await setup();
+    api.addSessionMessage("group-a", "user", "msg1");
+    api.addSessionMessage("group-b", "user", "msg2");
+    api.addSessionMessage("group-a", "assistant", "reply1");
+
+    const { body: bodyA } = await getJson(`http://127.0.0.1:${port}/api/sessions/group-a`);
+    const dataA = bodyA as { messages: unknown[] };
+    expect(dataA.messages).toHaveLength(2);
+
+    const { body: bodyB } = await getJson(`http://127.0.0.1:${port}/api/sessions/group-b`);
+    const dataB = bodyB as { messages: unknown[] };
+    expect(dataB.messages).toHaveLength(1);
+  });
+
+  it("GET /api/health returns detailed health", async () => {
+    await setup();
+    api.setConfig({ memory: { backend: "sqlite" } });
+    api.updateChannelStatus("telegram", "connected");
+    api.recordLLMUsage("claude", 100);
+
+    const { status, body } = await getJson(`http://127.0.0.1:${port}/api/health`);
+    expect(status).toBe(200);
+
+    const data = body as {
+      status: string;
+      uptime: number;
+      providers: Record<string, string>;
+      channels: Record<string, string>;
+      memory: string;
+    };
+    expect(data.status).toBe("ok");
+    expect(typeof data.uptime).toBe("number");
+    expect(data.providers.claude).toBe("connected");
+    expect(data.channels.telegram).toBe("connected");
+    expect(data.memory).toBe("sqlite");
+  });
+
+  it("POST /api/messages/send invokes onSendMessage callback", async () => {
+    await setup();
+    api.onSendMessage = async (content: string, groupId: string) => {
+      return `Echo: ${content} (${groupId})`;
+    };
+
+    const { status, body } = await postJson(`http://127.0.0.1:${port}/api/messages/send`, {
+      content: "hello",
+      groupId: "test-123",
+    });
+    expect(status).toBe(200);
+
+    const data = body as { response: string; groupId: string };
+    expect(data.response).toBe("Echo: hello (test-123)");
+    expect(data.groupId).toBe("test-123");
+  });
+
+  it("POST /api/messages/send returns 503 without handler", async () => {
+    await setup();
+
+    const { status, body } = await postJson(`http://127.0.0.1:${port}/api/messages/send`, {
+      content: "hello",
+      groupId: "test-123",
+    });
+    expect(status).toBe(503);
+    expect((body as Record<string, unknown>).error).toBe("No message handler configured");
+  });
+
+  it("updateSession accepts optional messageCount", async () => {
+    await setup();
+    api.updateSession("group-x", 10);
+
+    const { body } = await getJson(`http://127.0.0.1:${port}/api/sessions`);
+    const sessions = body as Array<{ groupId: string; messageCount: number }>;
+    const g = sessions.find((s) => s.groupId === "group-x");
+    expect(g).toBeDefined();
+    expect(g!.messageCount).toBe(10);
   });
 });
