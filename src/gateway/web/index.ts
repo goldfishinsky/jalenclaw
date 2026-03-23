@@ -1,22 +1,10 @@
 // src/gateway/web/index.ts
 import { type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-let cachedHtml: string | undefined;
-
-function loadDashboardHtml(): string {
-  if (!cachedHtml) {
-    cachedHtml = readFileSync(join(__dirname, "dashboard.html"), "utf-8");
-  }
-  return cachedHtml;
-}
+import { DASHBOARD_HTML } from "./dashboard-html.js";
 
 /**
  * Serve the dashboard HTML page at /dashboard.
+ * HTML is embedded at compile time — no file reads needed at runtime.
  * Returns true if the request was handled.
  */
 export function serveDashboard(req: IncomingMessage, res: ServerResponse): boolean {
@@ -28,7 +16,8 @@ export function serveDashboard(req: IncomingMessage, res: ServerResponse): boole
 
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  res.end(loadDashboardHtml());
+  res.setHeader("Cache-Control", "no-cache");
+  res.end(DASHBOARD_HTML);
   return true;
 }
 
