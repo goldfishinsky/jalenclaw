@@ -247,10 +247,16 @@ async function doOAuthLogin(mockLogin?: () => Promise<boolean>): Promise<boolean
       stdio: "inherit",
       cwd: process.cwd(),
     });
-    const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
-    const tokens = await readTokens(tokenPath);
-    return tokens !== null;
-  } catch {
-    return false;
+  } catch (err) {
+    // execSync throws if exit code is non-zero; the actual error was already printed to stderr via stdio: "inherit"
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("exit code")) {
+      console.error("OAuth login error:", msg);
+    }
   }
+
+  // Check if token was saved regardless of exit code
+  const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
+  const tokens = await readTokens(tokenPath);
+  return tokens !== null;
 }

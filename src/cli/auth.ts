@@ -39,6 +39,7 @@ export interface BuildAuthUrlParams {
 
 export function buildAuthorizationUrl(params: BuildAuthUrlParams): string {
   const url = new URL(AUTHORIZATION_ENDPOINT);
+  url.searchParams.set("code", "true");
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", params.clientId);
   url.searchParams.set("redirect_uri", params.redirectUri);
@@ -82,15 +83,19 @@ export async function loginFlow(params: LoginFlowParams): Promise<FlowResult> {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "unknown error");
-    return { success: false, message: `Token exchange failed: ${text}` };
+    console.error(`\nToken exchange failed (HTTP ${response.status}):`);
+    console.error(text);
+    return { success: false, message: `Token exchange failed (${response.status}): ${text}` };
   }
 
-  const data = (await response.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-    scope: string;
-  };
+  const responseText = await response.text();
+  let data: { access_token: string; refresh_token: string; expires_in: number; scope: string };
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    console.error("\nFailed to parse token response:", responseText);
+    return { success: false, message: `Invalid token response: ${responseText}` };
+  }
 
   const tokens: OAuthCredentials = {
     version: 1,

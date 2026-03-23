@@ -130,15 +130,15 @@ describe("cli/auth", () => {
         scopes: ["user:inference", "user:profile"],
       };
 
+      const tokenResponseBody = JSON.stringify({
+        access_token: mockTokenResponse.accessToken,
+        refresh_token: mockTokenResponse.refreshToken,
+        expires_in: 7200,
+        scope: "user:inference user:profile",
+      });
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
-        json: () =>
-          Promise.resolve({
-            access_token: mockTokenResponse.accessToken,
-            refresh_token: mockTokenResponse.refreshToken,
-            expires_in: 7200,
-            scope: "user:inference user:profile",
-          }),
+        text: () => Promise.resolve(tokenResponseBody),
       });
 
       const result = await loginFlow({
