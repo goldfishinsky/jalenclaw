@@ -3,7 +3,7 @@ import { type IncomingMessage, type ServerResponse } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 
 /** Paths that bypass authentication. */
-const PUBLIC_PATHS = new Set(["/health", "/dashboard"]);
+const PUBLIC_PATHS = new Set(["/health", "/dashboard", "/favicon.ico"]);
 const PUBLIC_PREFIXES = ["/api/"];
 
 export type NextFn = () => void;

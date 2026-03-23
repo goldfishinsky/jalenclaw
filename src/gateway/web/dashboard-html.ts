@@ -1,5 +1,6 @@
-export const DASHBOARD_HTML = `
-<!DOCTYPE html>
+// Auto-generated from dashboard.html — do not edit directly.
+// Run: node scripts/embed-dashboard.js
+export const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -612,11 +613,11 @@ export const DASHBOARD_HTML = `
 
     // ---- Breadcrumb map ----
     var breadcrumbs = {
-      dashboard: { title: "Dashboard", sub: " \u2014 Real-time monitoring" },
-      webchat: { title: "WebChat", sub: " \u2014 Chat with JalenClaw" },
-      channels: { title: "Channels", sub: " \u2014 Channel management" },
-      sessions: { title: "Sessions", sub: " \u2014 Active sessions" },
-      settings: { title: "Settings", sub: " \u2014 Configuration" }
+      dashboard: { title: "Dashboard", sub: " \\u2014 Real-time monitoring" },
+      webchat: { title: "WebChat", sub: " \\u2014 Chat with JalenClaw" },
+      channels: { title: "Channels", sub: " \\u2014 Channel management" },
+      sessions: { title: "Sessions", sub: " \\u2014 Active sessions" },
+      settings: { title: "Settings", sub: " \\u2014 Configuration" }
     };
 
     // ---- View switching ----
@@ -819,7 +820,7 @@ export const DASHBOARD_HTML = `
       }
       feed.innerHTML = list.map(function(msg) {
         var dir = msg.direction||"inbound";
-        var arrow = dir==="inbound"?"\u2192":"\u2190";
+        var arrow = dir==="inbound"?"\\u2192":"\\u2190";
         var preview = truncate(msg.preview||msg.content||msg.text||"",100);
         return '<div class="msg-row"><span class="msg-time">'+timeAgo(msg.timestamp)+'</span>' +
           '<span class="msg-dir '+dir+'">'+arrow+'</span>' +
@@ -882,15 +883,15 @@ export const DASHBOARD_HTML = `
       // Simple markdown-like: code blocks, inline code
       text = escHtml(text);
       // Code blocks: \`\`\`...\`\`\`
-      text = text.replace(/\`\`\`([\s\S]*?)\`\`\`/g, function(m,c) {
+      text = text.replace(/\`\`\`([\\s\\S]*?)\`\`\`/g, function(m,c) {
         return '<pre><code>'+c.trim()+'</code></pre>';
       });
       // Inline code: \`...\`
-      text = text.replace(/\`([^\`]+)\`/g, '<code>\$1</code>');
+      text = text.replace(/\`([^\`]+)\`/g, '<code>$1</code>');
       // Bold: **...**
-      text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>\$1</strong>');
+      text = text.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
       // Newlines
-      text = text.replace(/\n/g, '<br>');
+      text = text.replace(/\\n/g, '<br>');
       return text;
     }
 
@@ -988,7 +989,7 @@ export const DASHBOARD_HTML = `
             var empty = feed.querySelector(".empty-state");
             if (empty) feed.innerHTML = "";
             var dir = msg.direction||"inbound";
-            var arrow = dir==="inbound"?"\u2192":"\u2190";
+            var arrow = dir==="inbound"?"\\u2192":"\\u2190";
             var preview = truncate(msg.preview||msg.content||msg.text||"",100);
             var row = document.createElement("div");
             row.className = "msg-row new";
