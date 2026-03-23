@@ -24,7 +24,7 @@ import { OpenAIProvider } from "../models/openai.js";
 import { DeepSeekProvider } from "../models/deepseek.js";
 import { OllamaProvider } from "../models/ollama.js";
 import { ApiKeyStrategy } from "../auth/apikey.js";
-import { OAuthStrategy } from "../auth/oauth.js";
+import { BearerTokenStrategy } from "../auth/bearer.js";
 import { readTokens } from "../auth/token-store.js";
 import type { AuthStrategy } from "../auth/strategy.js";
 import { homedir } from "node:os";
@@ -48,6 +48,53 @@ export interface StartOptions {
 }
 
 /**
+ * Print a user-friendly startup banner to the console.
+ */
+export function printBanner(ctx: AppContext): void {
+  const { config, gateway } = ctx;
+  const host = config.gateway.host;
+  const port = gateway.port;
+
+  // Determine provider info
+  const providerNames = Object.keys(config.models.providers).filter(
+    (k) => config.models.providers[k as keyof typeof config.models.providers],
+  );
+  const defaultProvider = config.models.default;
+  const claudeConfig = config.models.providers.claude;
+  const authLabel =
+    claudeConfig && "authType" in claudeConfig ? claudeConfig.authType : "";
+  const providerDisplay = authLabel
+    ? `${defaultProvider} (${authLabel})`
+    : providerNames[0] ?? "stub";
+
+  // Determine enabled channels
+  const enabledChannels = Object.entries(config.channels)
+    .filter(([, ch]) => ch.enabled)
+    .map(([name]) => name);
+  const channelsDisplay =
+    enabledChannels.length > 0 ? enabledChannels.join(", ") : "none";
+
+  // Memory backend
+  const memoryDisplay = config.memory.backend;
+
+  const banner = `
+  \x1b[1m\x1b[35m🐾 JalenClaw v0.1.0\x1b[0m
+
+  Dashboard:  http://${host}:${port}/dashboard
+  Health:     http://${host}:${port}/health
+  WebSocket:  ws://${host}:${port}
+
+  Provider:   ${providerDisplay}
+  Channels:   ${channelsDisplay}
+  Memory:     ${memoryDisplay}
+
+  Press Ctrl+C to stop
+`;
+
+  console.log(banner);
+}
+
+/**
  * Build the default LLM provider based on config.
  * Falls back to a stub provider if no providers are configured (useful for testing).
  */
@@ -66,12 +113,14 @@ async function buildProviders(config: JalenClawConfig, logger: Logger): Promise<
       const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
       const tokens = await readTokens(tokenPath);
       if (tokens) {
-        authStrategy = new OAuthStrategy({
+        // Use BearerTokenStrategy directly with the access token instead of
+        // OAuthStrategy, since the Claude Code OAuth flow doesn't expose a
+        // refresh endpoint we can call ourselves.
+        authStrategy = new BearerTokenStrategy(tokens.accessToken);
+        logger.info("claude-oauth-loaded", {
           tokenPath,
-          tokenEndpoint: "https://api.anthropic.com/v1/oauth/token",
-          clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+          expiresAt: new Date(tokens.expiresAt).toISOString(),
         });
-        logger.info("claude-oauth-loaded", { expiresAt: new Date(tokens.expiresAt).toISOString() });
       } else {
         logger.warn("claude-oauth-not-configured", {
           message: "OAuth configured but no token found. Run 'jalenclaw auth login' first.",

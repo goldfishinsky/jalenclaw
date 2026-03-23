@@ -2,7 +2,7 @@
 // src/index.ts
 import { Command } from "commander";
 import { registerAuthCommands } from "./cli/auth.js";
-import { startApp } from "./cli/start.js";
+import { startApp, printBanner } from "./cli/start.js";
 import { checkConfigExists, runSetupWizard } from "./cli/setup.js";
 import { readTokens } from "./auth/token-store.js";
 import { loadConfig } from "./config/loader.js";
@@ -25,7 +25,7 @@ program
     await runSetupWizard();
     try {
       const ctx = await startApp();
-      console.log(`JalenClaw started on port ${ctx.gateway.port}`);
+      printBanner(ctx);
     } catch (err) {
       console.error(
         "Failed to start:",
@@ -46,7 +46,7 @@ program
         daemon: opts.daemon,
         configPath: opts.config,
       });
-      console.log(`JalenClaw started on port ${ctx.gateway.port}`);
+      printBanner(ctx);
     } catch (err) {
       console.error(
         "Failed to start:",
@@ -85,7 +85,7 @@ program.action(async () => {
   }
   try {
     const ctx = await startApp();
-    console.log(`JalenClaw started on port ${ctx.gateway.port}`);
+    printBanner(ctx);
   } catch (err) {
     console.error(
       "Failed to start:",
