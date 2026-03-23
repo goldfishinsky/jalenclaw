@@ -170,13 +170,18 @@ export async function runSetupWizard(options?: {
     });
 
     if (authMethod === "oauth") {
-      console.log("\n\u{1F510} Starting OAuth login...\n");
+      console.log("\n\u{1F510} Importing Claude Code credentials...\n");
       const success = await doOAuthLogin(options?.onOAuthLogin);
       if (!success) {
-        console.log("\n\u274C OAuth login failed. Please try again.\n");
+        console.log("\n\u274C No Claude Code credentials found.");
+        console.log("Please log in to Claude Code first:");
+        console.log("  1. Install: npm install -g @anthropic-ai/claude-code");
+        console.log("  2. Run: claude");
+        console.log("  3. Complete the login in your browser");
+        console.log("  4. Then re-run: jalenclaw\n");
         process.exit(1);
       }
-      console.log("\n\u2705 Authentication successful!\n");
+      console.log("\u2705 Claude Code credentials imported!\n");
     } else {
       apiKey = await password({
         message: "Enter your Anthropic API key:",
@@ -241,21 +246,10 @@ export async function runSetupWizard(options?: {
 async function doOAuthLogin(mockLogin?: () => Promise<boolean>): Promise<boolean> {
   if (mockLogin) return mockLogin();
 
-  try {
-    const { execSync } = await import("node:child_process");
-    execSync("node ./dist/index.js auth login", {
-      stdio: "inherit",
-      cwd: process.cwd(),
-    });
-  } catch (err) {
-    // execSync throws if exit code is non-zero; the actual error was already printed to stderr via stdio: "inherit"
-    const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes("exit code")) {
-      console.error("OAuth login error:", msg);
-    }
-  }
+  const { loginFlow } = await import("./auth.js");
+  const result = await loginFlow();
+  if (!result.success) return false;
 
-  // Check if token was saved regardless of exit code
   const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
   const tokens = await readTokens(tokenPath);
   return tokens !== null;

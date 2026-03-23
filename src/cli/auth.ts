@@ -6,11 +6,9 @@ import {
   deleteTokens,
   type OAuthCredentials,
 } from "../auth/token-store.js";
-// oauth-server.ts still available for future use but login now uses paste-code flow
-import { generatePKCE } from "../auth/pkce.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const DEFAULT_TOKEN_PATH = join(
@@ -19,105 +17,125 @@ const DEFAULT_TOKEN_PATH = join(
   "auth",
   "oauth-credentials.json",
 );
-const AUTHORIZATION_ENDPOINT =
-  "https://console.anthropic.com/oauth/authorize";
-const TOKEN_ENDPOINT = "https://api.anthropic.com/oauth/token";
-const DEFAULT_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback";
-const SCOPES = "org:create_api_key user:profile user:inference";
+
+// Claude Code CLI credentials paths
+const CLAUDE_CLI_CREDENTIALS_PATH = join(homedir(), ".claude", ".credentials.json");
+const CLAUDE_CLI_KEYCHAIN_SERVICE = "Claude Code-credentials";
 
 // --- Exported business logic functions (testable without commander) ---
-
-export interface BuildAuthUrlParams {
-  clientId: string;
-  redirectUri: string;
-  codeChallenge: string;
-  challengeMethod: string;
-  scopes: string;
-  state: string;
-}
-
-export function buildAuthorizationUrl(params: BuildAuthUrlParams): string {
-  const url = new URL(AUTHORIZATION_ENDPOINT);
-  url.searchParams.set("code", "true");
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("client_id", params.clientId);
-  url.searchParams.set("redirect_uri", params.redirectUri);
-  url.searchParams.set("code_challenge", params.codeChallenge);
-  url.searchParams.set("code_challenge_method", params.challengeMethod);
-  url.searchParams.set("scope", params.scopes);
-  url.searchParams.set("state", params.state);
-  return url.toString();
-}
-
-export interface LoginFlowParams {
-  tokenPath: string;
-  code: string;
-  codeVerifier: string;
-  redirectUri: string;
-  clientId: string;
-  fetchFn?: typeof globalThis.fetch;
-}
 
 export interface FlowResult {
   success: boolean;
   message: string;
 }
 
-export async function loginFlow(params: LoginFlowParams): Promise<FlowResult> {
-  const fetchFn = params.fetchFn ?? globalThis.fetch;
-
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code: params.code,
-    code_verifier: params.codeVerifier,
-    redirect_uri: params.redirectUri,
-    client_id: params.clientId,
-  });
-
-  const response = await fetchFn(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "unknown error");
-    console.error(`\nToken exchange failed (HTTP ${response.status}):`);
-    console.error(text);
-    return { success: false, message: `Token exchange failed (${response.status}): ${text}` };
+/**
+ * Read Claude Code CLI OAuth credentials from macOS Keychain or file.
+ * This is how OpenClaw does it — reuse Claude Code's existing login.
+ */
+export function readClaudeCliCredentials(options?: {
+  homeDir?: string;
+  credentialsPath?: string;
+  skipKeychain?: boolean;
+}): OAuthCredentials | null {
+  // 1. Try macOS Keychain first
+  if (process.platform === "darwin" && !options?.skipKeychain) {
+    try {
+      const result = execSync(
+        `security find-generic-password -s "${CLAUDE_CLI_KEYCHAIN_SERVICE}" -w`,
+        { encoding: "utf8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      const data = JSON.parse(result.trim());
+      const creds = parseClaudeCliOAuth(data?.claudeAiOauth);
+      if (creds) return creds;
+    } catch {
+      // Keychain not available or no entry — fall through to file
+    }
   }
 
-  const responseText = await response.text();
-  let data: { access_token: string; refresh_token: string; expires_in: number; scope: string };
+  // 2. Fall back to file
+  const credPath = options?.credentialsPath ?? CLAUDE_CLI_CREDENTIALS_PATH;
   try {
-    data = JSON.parse(responseText);
+    const raw = readFileSync(credPath, "utf-8");
+    const data = JSON.parse(raw);
+    return parseClaudeCliOAuth(data?.claudeAiOauth);
   } catch {
-    console.error("\nFailed to parse token response:", responseText);
-    return { success: false, message: `Invalid token response: ${responseText}` };
+    return null;
+  }
+}
+
+function parseClaudeCliOAuth(claudeOauth: unknown): OAuthCredentials | null {
+  if (!claudeOauth || typeof claudeOauth !== "object") return null;
+
+  const obj = claudeOauth as Record<string, unknown>;
+  const accessToken = obj.accessToken;
+  const refreshToken = obj.refreshToken;
+  const expiresAt = obj.expiresAt;
+
+  if (typeof accessToken !== "string" || !accessToken) return null;
+  if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) return null;
+
+  return {
+    version: 1,
+    accessToken,
+    refreshToken: typeof refreshToken === "string" ? refreshToken : "",
+    expiresAt,
+    scopes: ["user:inference", "user:profile"],
+  };
+}
+
+/**
+ * Import Claude Code CLI credentials into JalenClaw's token store.
+ */
+export async function loginFlow(options?: {
+  tokenPath?: string;
+  credentialsPath?: string;
+  skipKeychain?: boolean;
+}): Promise<FlowResult> {
+  const tokenPath = options?.tokenPath ?? DEFAULT_TOKEN_PATH;
+  const creds = readClaudeCliCredentials({
+    credentialsPath: options?.credentialsPath,
+    skipKeychain: options?.skipKeychain,
+  });
+
+  if (!creds) {
+    return {
+      success: false,
+      message:
+        "No Claude Code credentials found. Please log in to Claude Code first:\n" +
+        "  1. Install Claude Code: npm install -g @anthropic-ai/claude-code\n" +
+        "  2. Run: claude\n" +
+        "  3. Complete the login in browser\n" +
+        "  4. Then run: jalenclaw auth login",
+    };
   }
 
-  const tokens: OAuthCredentials = {
-    version: 1,
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-    scopes: data.scope.split(" "),
+  await writeTokens(tokenPath, creds);
+
+  const expired = creds.expiresAt < Date.now();
+  if (expired) {
+    return {
+      success: true,
+      message:
+        "Imported Claude Code credentials (token expired — it will be refreshed on first use).",
+    };
+  }
+
+  const expiresDate = new Date(creds.expiresAt).toLocaleString();
+  return {
+    success: true,
+    message: `Successfully imported Claude Code credentials. Token expires at ${expiresDate}.`,
   };
-
-  await writeTokens(params.tokenPath, tokens);
-
-  return { success: true, message: "Successfully logged in." };
 }
 
 export interface LogoutFlowParams {
-  tokenPath: string;
+  tokenPath?: string;
 }
 
 export async function logoutFlow(
-  params: LogoutFlowParams,
+  params?: LogoutFlowParams,
 ): Promise<FlowResult> {
-  await deleteTokens(params.tokenPath);
+  await deleteTokens(params?.tokenPath ?? DEFAULT_TOKEN_PATH);
   return { success: true, message: "Logged out. OAuth tokens cleared." };
 }
 
@@ -129,16 +147,22 @@ export interface StatusFlowResult {
   expired?: boolean;
 }
 
-export interface StatusFlowParams {
-  tokenPath: string;
-}
-
-export async function statusFlow(
-  params: StatusFlowParams,
-): Promise<StatusFlowResult> {
-  const tokens = await readTokens(params.tokenPath);
+export async function statusFlow(options?: {
+  tokenPath?: string;
+}): Promise<StatusFlowResult> {
+  const tokenPath = options?.tokenPath ?? DEFAULT_TOKEN_PATH;
+  const tokens = await readTokens(tokenPath);
 
   if (!tokens) {
+    // Also check Claude Code CLI directly
+    const cliCreds = readClaudeCliCredentials();
+    if (cliCreds) {
+      return {
+        authenticated: false,
+        message:
+          "Not imported yet, but Claude Code credentials found. Run 'jalenclaw auth login' to import.",
+      };
+    }
     return { authenticated: false, message: "Not authenticated." };
   }
 
@@ -148,7 +172,7 @@ export async function statusFlow(
   return {
     authenticated: true,
     message: expired
-      ? `Authenticated (token expired at ${expiresDate}). Run 'jalenclaw auth refresh' to renew.`
+      ? `Authenticated (token expired at ${expiresDate}). Will refresh on next use.`
       : `Authenticated. Token expires at ${expiresDate}.`,
     expiresAt: tokens.expiresAt,
     scopes: tokens.scopes,
@@ -156,73 +180,15 @@ export async function statusFlow(
   };
 }
 
-export interface RefreshFlowParams {
-  tokenPath: string;
-  clientId: string;
-  fetchFn?: typeof globalThis.fetch;
-}
-
-export async function refreshFlow(
-  params: RefreshFlowParams,
-): Promise<FlowResult> {
-  const tokens = await readTokens(params.tokenPath);
-  if (!tokens) {
-    return {
-      success: false,
-      message: "No stored token found. Run 'jalenclaw auth login' first.",
-    };
+export async function refreshFlow(options?: {
+  tokenPath?: string;
+}): Promise<FlowResult> {
+  // Re-import from Claude Code CLI (which may have refreshed the token)
+  const result = await loginFlow({ tokenPath: options?.tokenPath });
+  if (result.success) {
+    return { success: true, message: "Token refreshed from Claude Code credentials." };
   }
-
-  const fetchFn = params.fetchFn ?? globalThis.fetch;
-
-  const body = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: tokens.refreshToken,
-    client_id: params.clientId,
-  });
-
-  const response = await fetchFn(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "unknown error");
-    return { success: false, message: `Token refresh failed: ${text}` };
-  }
-
-  const data = (await response.json()) as {
-    access_token: string;
-    refresh_token: string;
-    expires_in: number;
-    scope: string;
-  };
-
-  const updated: OAuthCredentials = {
-    version: 1,
-    accessToken: data.access_token,
-    refreshToken: data.refresh_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-    scopes: data.scope.split(" "),
-  };
-
-  await writeTokens(params.tokenPath, updated);
-
-  return { success: true, message: "Token refreshed successfully." };
-}
-
-function openBrowser(url: string): void {
-  const platform = process.platform;
-  try {
-    if (platform === "darwin") {
-      execSync(`open ${JSON.stringify(url)}`, { stdio: "ignore" });
-    } else {
-      execSync(`xdg-open ${JSON.stringify(url)}`, { stdio: "ignore" });
-    }
-  } catch {
-    // Browser open failed — user will need to copy the URL manually
-  }
+  return result;
 }
 
 // --- Commander registration ---
@@ -234,57 +200,9 @@ export function registerAuthCommands(program: Command): void {
 
   auth
     .command("login")
-    .description("Login with Claude subscription")
+    .description("Import Claude Code subscription credentials")
     .action(async () => {
-      const pkce = generatePKCE();
-      const state = randomBytes(16).toString("hex");
-
-      const authUrl = buildAuthorizationUrl({
-        clientId: DEFAULT_CLIENT_ID,
-        redirectUri: REDIRECT_URI,
-        codeChallenge: pkce.codeChallenge,
-        challengeMethod: pkce.challengeMethod,
-        scopes: SCOPES,
-        state,
-      });
-
-      console.log("\nOpening browser for authorization...");
-      openBrowser(authUrl);
-      console.log(
-        "\nIf the browser doesn't open, visit this URL:\n",
-      );
-      console.log(`  ${authUrl}\n`);
-      console.log(
-        "After authorizing, you'll see a code on the page. Paste it here:\n",
-      );
-
-      const readline = await import("node:readline");
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      const code = await new Promise<string>((resolve) => {
-        rl.question("> ", (answer) => {
-          rl.close();
-          resolve(answer.trim());
-        });
-      });
-
-      if (!code) {
-        console.log("No code provided. Login cancelled.");
-        process.exitCode = 1;
-        return;
-      }
-
-      const result = await loginFlow({
-        tokenPath: DEFAULT_TOKEN_PATH,
-        code,
-        codeVerifier: pkce.codeVerifier,
-        redirectUri: REDIRECT_URI,
-        clientId: DEFAULT_CLIENT_ID,
-      });
-
+      const result = await loginFlow();
       console.log(result.message);
       process.exitCode = result.success ? 0 : 1;
     });
@@ -293,7 +211,7 @@ export function registerAuthCommands(program: Command): void {
     .command("logout")
     .description("Clear stored OAuth tokens")
     .action(async () => {
-      const result = await logoutFlow({ tokenPath: DEFAULT_TOKEN_PATH });
+      const result = await logoutFlow();
       console.log(result.message);
     });
 
@@ -301,7 +219,7 @@ export function registerAuthCommands(program: Command): void {
     .command("status")
     .description("Show authentication status")
     .action(async () => {
-      const result = await statusFlow({ tokenPath: DEFAULT_TOKEN_PATH });
+      const result = await statusFlow();
       console.log(result.message);
       if (result.scopes) {
         console.log(`Scopes: ${result.scopes.join(", ")}`);
@@ -311,12 +229,9 @@ export function registerAuthCommands(program: Command): void {
 
   auth
     .command("refresh")
-    .description("Manually refresh OAuth token")
+    .description("Refresh token from Claude Code credentials")
     .action(async () => {
-      const result = await refreshFlow({
-        tokenPath: DEFAULT_TOKEN_PATH,
-        clientId: DEFAULT_CLIENT_ID,
-      });
+      const result = await refreshFlow();
       console.log(result.message);
       process.exitCode = result.success ? 0 : 1;
     });
