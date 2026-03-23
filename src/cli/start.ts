@@ -8,6 +8,8 @@ import { loadConfig } from "../config/loader.js";
 import { createLogger, type Logger } from "../observability/logger.js";
 import { createMetricsRegistry, type MetricsRegistry } from "../observability/metrics.js";
 import { createGateway, type Gateway } from "../gateway/server.js";
+import { createDashboardApi } from "../gateway/web/api.js";
+import { serveDashboard } from "../gateway/web/index.js";
 import { createAgentRunner, type AgentRunner } from "../agent/runner.js";
 import { createRouter, type Router } from "../router/router.js";
 import { createMessageQueue } from "../router/queue.js";
@@ -22,7 +24,10 @@ import { OpenAIProvider } from "../models/openai.js";
 import { DeepSeekProvider } from "../models/deepseek.js";
 import { OllamaProvider } from "../models/ollama.js";
 import { ApiKeyStrategy } from "../auth/apikey.js";
+import { OAuthStrategy } from "../auth/oauth.js";
+import { readTokens } from "../auth/token-store.js";
 import type { AuthStrategy } from "../auth/strategy.js";
+import { homedir } from "node:os";
 
 export interface AppContext {
   config: JalenClawConfig;
@@ -46,7 +51,7 @@ export interface StartOptions {
  * Build the default LLM provider based on config.
  * Falls back to a stub provider if no providers are configured (useful for testing).
  */
-function buildProviders(config: JalenClawConfig, logger: Logger): Map<string, LLMProvider> {
+async function buildProviders(config: JalenClawConfig, logger: Logger): Promise<Map<string, LLMProvider>> {
   const providers = new Map<string, LLMProvider>();
   const providerConfigs = config.models.providers;
 
@@ -57,15 +62,19 @@ function buildProviders(config: JalenClawConfig, logger: Logger): Map<string, LL
     if (claudeConfig.authType === "apikey") {
       authStrategy = new ApiKeyStrategy(claudeConfig.apiKey);
     } else {
-      // OAuth: for now we require a token to already be on disk.
-      // The OAuthStrategy requires token path + endpoint which are not in the
-      // minimal config schema. Fall back to env-based API key if available.
-      const envKey = process.env["ANTHROPIC_API_KEY"];
-      if (envKey) {
-        authStrategy = new ApiKeyStrategy(envKey);
+      // OAuth: read token from JalenClaw's token store (imported from Claude Code CLI)
+      const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
+      const tokens = await readTokens(tokenPath);
+      if (tokens) {
+        authStrategy = new OAuthStrategy({
+          tokenPath,
+          tokenEndpoint: "https://api.anthropic.com/v1/oauth/token",
+          clientId: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+        });
+        logger.info("claude-oauth-loaded", { expiresAt: new Date(tokens.expiresAt).toISOString() });
       } else {
         logger.warn("claude-oauth-not-configured", {
-          message: "OAuth configured but no token available; skipping Claude provider",
+          message: "OAuth configured but no token found. Run 'jalenclaw auth login' first.",
         });
         return providers;
       }
@@ -133,7 +142,7 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
   const messageLatency = metrics.histogram("jalenclaw_message_latency_ms", "Message processing latency in ms");
 
   // 4. Build LLM providers
-  const providers = buildProviders(config, logger);
+  const providers = await buildProviders(config, logger);
   const defaultName = config.models.default;
   const defaultProvider = providers.get(defaultName) ?? providers.values().next().value ?? createStubProvider();
 
@@ -194,13 +203,22 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
   // 10. Generate a gateway API key (for internal use; real deployments override via config)
   const gatewayApiKey = process.env["JALENCLAW_API_KEY"] ?? randomUUID();
 
-  // 11. Create and start gateway
+  // 10b. Create dashboard API
+  const dashboardApi = createDashboardApi();
+
+  // 11. Create and start gateway with dashboard
   const gateway = createGateway({
     host: config.gateway.host,
     port: config.gateway.port,
     apiKey: gatewayApiKey,
     rateLimit: config.rateLimit,
+    customHandlers: [
+      (req, res) => serveDashboard(req, res),
+      (req, res) => dashboardApi.handleRequest(req, res),
+    ],
   });
+
+  logger.info("dashboard-available", { url: `http://${config.gateway.host}:${config.gateway.port}/dashboard` });
 
   // 12. Wire WebSocket messages -> router -> agent -> WebSocket response
   const wsClients = new Map<string, import("ws").WebSocket>();

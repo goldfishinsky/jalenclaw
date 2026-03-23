@@ -10,6 +10,8 @@ export interface GatewayOptions {
   apiKey: string;
   rateLimit?: { maxRequestsPerMinute: number; burstSize: number };
   allowedOrigins?: string[];
+  /** Custom request handlers called before built-in routes. Return true if handled. */
+  customHandlers?: Array<(req: IncomingMessage, res: ServerResponse) => boolean>;
 }
 
 export interface Gateway {
@@ -32,6 +34,7 @@ export function createGateway(options: GatewayOptions): Gateway {
     apiKey,
     rateLimit: rateLimitOpts = { maxRequestsPerMinute: 60, burstSize: 10 },
     allowedOrigins,
+    customHandlers = [],
   } = options;
 
   const auth = createAuthMiddleware(apiKey);
@@ -66,11 +69,16 @@ export function createGateway(options: GatewayOptions): Gateway {
 
     // Auth middleware
     auth(req, res, () => {
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-      const handler = routes[url.pathname];
+      // Try custom handlers first
+      for (const handler of customHandlers) {
+        if (handler(req, res)) return;
+      }
 
-      if (handler) {
-        handler(req, res);
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      const routeHandler = routes[url.pathname];
+
+      if (routeHandler) {
+        routeHandler(req, res);
       } else {
         res.statusCode = 404;
         res.setHeader("Content-Type", "application/json");
