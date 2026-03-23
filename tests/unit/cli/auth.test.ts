@@ -154,7 +154,7 @@ describe("cli/auth", () => {
       expect(mockFetch).toHaveBeenCalledOnce();
 
       const [url, options] = mockFetch.mock.calls[0];
-      expect(url).toBe("https://console.anthropic.com/oauth/token");
+      expect(url).toBe("https://api.anthropic.com/oauth/token");
       expect(options.method).toBe("POST");
 
       const body = new URLSearchParams(options.body);
@@ -200,7 +200,7 @@ describe("cli/auth", () => {
       expect(mockFetch).toHaveBeenCalledOnce();
 
       const [url, options] = mockFetch.mock.calls[0];
-      expect(url).toBe("https://console.anthropic.com/oauth/token");
+      expect(url).toBe("https://api.anthropic.com/oauth/token");
       expect(options.method).toBe("POST");
 
       const body = new URLSearchParams(options.body);

@@ -21,7 +21,7 @@ const DEFAULT_TOKEN_PATH = join(
 );
 const AUTHORIZATION_ENDPOINT =
   "https://console.anthropic.com/oauth/authorize";
-const TOKEN_ENDPOINT = "https://console.anthropic.com/oauth/token";
+const TOKEN_ENDPOINT = "https://api.anthropic.com/oauth/token";
 const DEFAULT_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback";
 const SCOPES = "org:create_api_key user:profile user:inference";
