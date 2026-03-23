@@ -39,6 +39,7 @@ export interface AppContext {
   memory: MemoryManager;
   processManager: ProcessManager;
   healthChecker: HealthChecker;
+  gatewayApiKey: string;
   shutdown(): Promise<void>;
 }
 
@@ -51,7 +52,7 @@ export interface StartOptions {
  * Print a user-friendly startup banner to the console.
  */
 export function printBanner(ctx: AppContext): void {
-  const { config, gateway } = ctx;
+  const { config, gateway, gatewayApiKey: apiKey } = ctx;
   const host = config.gateway.host;
   const port = gateway.port;
 
@@ -77,6 +78,11 @@ export function printBanner(ctx: AppContext): void {
   // Memory backend
   const memoryDisplay = config.memory.backend;
 
+  // API key display
+  const apiKeyDisplay = apiKey
+    ? `${apiKey.slice(0, 8)}...${process.env["JALENCLAW_API_KEY"] ? "" : " (set JALENCLAW_API_KEY to customize)"}`
+    : "not set";
+
   const banner = `
   \x1b[1m\x1b[35m🐾 JalenClaw v0.1.0\x1b[0m
 
@@ -84,6 +90,7 @@ export function printBanner(ctx: AppContext): void {
   Health:     http://${host}:${port}/health
   WebSocket:  ws://${host}:${port}
 
+  API Key:    ${apiKeyDisplay}
   Provider:   ${providerDisplay}
   Channels:   ${channelsDisplay}
   Memory:     ${memoryDisplay}
@@ -262,7 +269,7 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
     apiKey: gatewayApiKey,
     rateLimit: config.rateLimit,
     customHandlers: [
-      (req, res) => serveDashboard(req, res),
+      (req, res) => serveDashboard(req, res, gatewayApiKey),
       (req, res) => dashboardApi.handleRequest(req, res),
     ],
   });
@@ -270,53 +277,100 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
   logger.info("dashboard-available", { url: `http://${config.gateway.host}:${config.gateway.port}/dashboard` });
 
   // 12. Wire WebSocket messages -> router -> agent -> WebSocket response
-  const wsClients = new Map<string, import("ws").WebSocket>();
+  // Track WS clients by groupId for persistent sessions
+  const wsClientsByGroup = new Map<string, import("ws").WebSocket>();
+
+  // Register outbound handler once (not per-message)
+  router.onOutbound("websocket", async (outMsg: StandardMessage) => {
+    const gid = outMsg.groupId ?? "";
+    const target = wsClientsByGroup.get(gid);
+    if (target && target.readyState === 1 /* OPEN */) {
+      target.send(JSON.stringify({
+        type: "response",
+        content: outMsg.content.text,
+        groupId: gid,
+      }));
+    }
+  });
 
   gateway.onMessage((ws, data) => {
     const msg = data as { type?: string; content?: string; groupId?: string };
-    if (msg.type !== "message" || typeof msg.content !== "string") return;
+    const msgType = msg.type ?? "message";
+
+    // Handle ping/keepalive
+    if (msgType === "ping") {
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "pong" }));
+      }
+      return;
+    }
+
+    // Handle sessions list
+    if (msgType === "sessions") {
+      const sessions = Array.from(wsClientsByGroup.keys());
+      if (ws.readyState === 1) {
+        ws.send(JSON.stringify({ type: "sessions", data: sessions }));
+      }
+      return;
+    }
+
+    // Handle chat messages
+    if (msgType !== "message" || typeof msg.content !== "string") return;
 
     const groupId = msg.groupId ?? randomUUID();
-    const clientId = randomUUID();
-    wsClients.set(clientId, ws);
 
-    const standardMessage: StandardMessage = {
-      id: randomUUID(),
-      channelType: "websocket",
-      channelMessageId: clientId,
-      senderId: clientId,
-      groupId,
-      content: { type: "text", text: msg.content },
-      timestamp: Date.now(),
-      direction: "inbound",
-    };
+    // Track this WS client by groupId (overwrites previous client for same group)
+    wsClientsByGroup.set(groupId, ws);
 
-    // Register outbound handler for websocket channel
-    router.onOutbound("websocket", async (outMsg: StandardMessage) => {
-      const target = wsClients.get(outMsg.groupId ?? "");
-      if (target && target.readyState === 1 /* OPEN */) {
-        target.send(JSON.stringify({
-          type: "response",
-          content: outMsg.content.text,
-          groupId: outMsg.groupId,
-        }));
-      }
-      // Also try the original client
-      if (ws.readyState === 1) {
-        ws.send(JSON.stringify({
-          type: "response",
-          content: outMsg.content.text,
-          groupId,
-        }));
+    // Clean up on close
+    ws.on("close", () => {
+      // Only remove if this ws is still the tracked client for this group
+      if (wsClientsByGroup.get(groupId) === ws) {
+        wsClientsByGroup.delete(groupId);
       }
     });
 
-    router.routeInbound(standardMessage).catch((err) => {
-      logger.error("inbound-route-error", { error: String(err) });
-      if (ws.readyState === 1) {
-        ws.send(JSON.stringify({ type: "error", message: "Internal error" }));
+    // Stream response directly via agent, bypassing the router outbound path
+    // for chunk delivery (router still gets the final message for logging/metrics)
+    const content = msg.content;
+    messagesReceived.inc(1, { channel: "websocket" });
+    const startTime = Date.now();
+
+    (async () => {
+      let fullResponse = "";
+      try {
+        for await (const chunk of agent.handleMessage(groupId, content)) {
+          fullResponse += chunk;
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({
+              type: "chunk",
+              content: chunk,
+              groupId,
+            }));
+          }
+        }
+
+        messageLatency.observe(Date.now() - startTime);
+
+        // Send done message with full response
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({
+            type: "response",
+            content: fullResponse,
+            groupId,
+          }));
+        }
+
+        if (fullResponse.length > 0) {
+          messagesSent.inc(1, { channel: "websocket" });
+        }
+      } catch (err) {
+        logger.error("ws-message-error", { error: String(err), groupId });
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: "error", message: "Internal error", groupId }));
+        }
       }
-    });
+    })();
   });
 
   await gateway.start();
@@ -391,6 +445,7 @@ export async function startApp(options?: StartOptions): Promise<AppContext> {
     memory,
     processManager,
     healthChecker,
+    gatewayApiKey,
     shutdown,
   };
 }
