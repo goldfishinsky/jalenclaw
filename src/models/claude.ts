@@ -1,7 +1,8 @@
 /**
- * Claude LLM provider using the Anthropic Messages API with streaming.
- * Authenticates via an AuthStrategy (API key or OAuth).
+ * Claude LLM provider using the official Anthropic SDK.
+ * Supports both API key auth and OAuth token auth.
  */
+import Anthropic from "@anthropic-ai/sdk";
 import type { AuthStrategy } from "../auth/strategy.js";
 import type {
   LLMProvider,
@@ -28,77 +29,55 @@ export class ClaudeProvider implements LLMProvider {
   async *chat(messages: Message[], tools?: Tool[]): AsyncIterable<Chunk> {
     const headers = await this.authStrategy.getHeaders();
 
-    const body = {
-      model: this.model,
-      max_tokens: 4096,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-      stream: true,
-      ...(tools?.length
-        ? {
-            tools: tools.map((t) => ({
-              name: t.name,
-              description: t.description,
-              input_schema: t.parameters,
-            })),
-          }
-        : {}),
-    };
+    // Determine if this is OAuth (Bearer) or API key auth
+    const isOAuth = !!headers["Authorization"];
+    const apiKey = isOAuth
+      ? headers["Authorization"].replace("Bearer ", "")
+      : headers["X-Api-Key"] ?? "";
 
-    const response = await fetch(`${this.baseUrl}/v1/messages`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "Content-Type": "application/json",
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeout * 1000),
+    const client = new Anthropic({
+      apiKey,
+      baseURL: this.baseUrl,
+      // For OAuth tokens, send as Authorization: Bearer instead of X-Api-Key
+      ...(isOAuth
+        ? { defaultHeaders: { Authorization: headers["Authorization"] } }
+        : {}),
     });
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Claude API error ${response.status}: ${text}`);
-    }
+    const toolDefs = tools?.length
+      ? tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          input_schema: t.parameters as Anthropic.Tool.InputSchema,
+        }))
+      : undefined;
 
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("No response body");
+    const stream = client.messages.stream({
+      model: this.model,
+      max_tokens: 4096,
+      messages: messages
+        .filter((m) => m.role !== "system")
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ...(messages.some((m) => m.role === "system")
+        ? { system: messages.find((m) => m.role === "system")!.content }
+        : {}),
+      ...(toolDefs ? { tools: toolDefs } : {}),
+    });
 
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6);
-        if (data === "[DONE]") return;
-
-        try {
-          const event = JSON.parse(data) as {
-            type: string;
-            delta?: { type: string; text: string };
-          };
-          if (
-            event.type === "content_block_delta" &&
-            event.delta?.type === "text_delta"
-          ) {
-            yield { type: "text", content: event.delta.text };
-          }
-        } catch {
-          // skip malformed SSE events
-        }
+    for await (const event of stream) {
+      if (
+        event.type === "content_block_delta" &&
+        event.delta.type === "text_delta"
+      ) {
+        yield { type: "text", content: event.delta.text };
       }
     }
   }
 
   countTokens(text: string): number {
-    // Approximate: ~4 chars per token for English, ~2 for CJK
     return Math.ceil(text.length / 4);
   }
 }
