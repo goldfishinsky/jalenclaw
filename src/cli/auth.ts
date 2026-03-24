@@ -287,7 +287,11 @@ export async function oauthLoginFlow(options?: {
       code = extractCodeFromInput(manualResult.code);
     } else {
       // Real mode: race callback vs stdin
-      const manualPromise = readStdinInput();
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const manualPromise = new Promise<string>((resolve) => {
+        rl.question("> ", (answer) => resolve(answer));
+      });
+
       const callbackPromise = callbackServer
         .waitForCode()
         .then((r) => ({ source: "callback" as const, code: r.code }));
@@ -298,11 +302,15 @@ export async function oauthLoginFlow(options?: {
 
       const result = await Promise.race([callbackPromise, manualInputPromise]);
 
+      // Close readline immediately so Node can continue
+      rl.close();
+
       if (!result.code) {
         return { success: false, message: "No authorization code received." };
       }
 
       code = extractCodeFromInput(result.code);
+      console.log(`\nReceived authorization code (via ${result.source}).`);
     }
 
     // 5. Exchange code for tokens
@@ -339,18 +347,8 @@ function extractCodeFromInput(input: string): string {
   return trimmed;
 }
 
-/**
- * Read a line from stdin (for manual code paste).
- */
-function readStdinInput(): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    rl.question("> ", (answer) => {
-      rl.close();
-      resolve(answer);
-    });
-  });
-}
+// readStdinInput removed — readline is now created inline in oauthLoginFlow
+// to allow proper cleanup after Promise.race resolves.
 
 /**
  * Import Claude Code CLI credentials as a FALLBACK.
