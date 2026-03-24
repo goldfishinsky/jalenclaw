@@ -9,7 +9,7 @@ const CONFIG_DIR = join(homedir(), ".jalenclaw");
 const CONFIG_PATH = join(CONFIG_DIR, "jalenclaw.yml");
 
 export type AIProvider = "claude" | "openai" | "deepseek" | "ollama";
-export type AuthMethod = "oauth" | "apikey";
+export type AuthMethod = "setup-token" | "oauth" | "import" | "apikey";
 export type Channel = "none" | "whatsapp" | "telegram" | "slack" | "discord";
 
 export interface SetupAnswers {
@@ -53,7 +53,7 @@ function buildProviderConfig(
 
   switch (answers.provider) {
     case "claude":
-      if (answers.authMethod === "oauth") {
+      if (answers.authMethod === "oauth" || answers.authMethod === "setup-token" || answers.authMethod === "import") {
         providers.claude = { authType: "oauth" };
       } else {
         providers.claude = {
@@ -160,16 +160,29 @@ export async function runSetupWizard(options?: {
   let apiKey: string | undefined;
 
   if (provider === "claude") {
+    console.log("\n\x1b[1m\uD83D\uDD10 Claude Authentication\x1b[0m\n");
     authMethod = await select<AuthMethod>({
-      message: "Authentication method:",
+      message: "Choose method:",
       choices: [
-        { name: "OAuth login (use your Claude subscription)", value: "oauth" },
-        { name: "API Key", value: "apikey" },
+        { name: "Setup Token (recommended) \u2014 Run 'claude setup-token' and paste the token", value: "setup-token" },
+        { name: "OAuth Login \u2014 Login via browser", value: "oauth" },
+        { name: "Import from Claude Code \u2014 Use existing Claude Code credentials", value: "import" },
+        { name: "API Key \u2014 Use an Anthropic API key", value: "apikey" },
       ],
     });
 
-    if (authMethod === "oauth") {
-      console.log("\n\u{1F510} Starting Claude OAuth login...\n");
+    if (authMethod === "setup-token") {
+      const success = await doSetupToken(options?.onOAuthLogin);
+      if (!success) {
+        console.log("\n\u274C Setup token validation failed.");
+        console.log("Please try again or use another method.\n");
+        process.exit(1);
+      }
+      // setup-token stores as oauth authType in config
+      authMethod = "oauth" as AuthMethod;
+      console.log("\u2705 Authentication successful!\n");
+    } else if (authMethod === "oauth") {
+      console.log("\n\x1b[1m\uD83D\uDD10 Starting Claude OAuth login...\x1b[0m\n");
       const success = await doOAuthLogin(options?.onOAuthLogin);
       if (!success) {
         console.log("\n\u274C OAuth login failed.");
@@ -177,6 +190,16 @@ export async function runSetupWizard(options?: {
         process.exit(1);
       }
       console.log("\u2705 Authentication successful!\n");
+    } else if (authMethod === "import") {
+      const { importClaudeCliFlow } = await import("./auth.js");
+      const result = await importClaudeCliFlow();
+      if (!result.success) {
+        console.log("\n\u274C " + result.message);
+        process.exit(1);
+      }
+      // import stores as oauth authType in config
+      authMethod = "oauth" as AuthMethod;
+      console.log("\u2705 " + result.message + "\n");
     } else {
       apiKey = await password({
         message: "Enter your Anthropic API key:",
@@ -243,6 +266,20 @@ async function doOAuthLogin(mockLogin?: () => Promise<boolean>): Promise<boolean
 
   const { oauthLoginFlow } = await import("./auth.js");
   const result = await oauthLoginFlow();
+  if (!result.success) {
+    console.log(result.message);
+    return false;
+  }
+
+  console.log(result.message);
+  return true;
+}
+
+async function doSetupToken(mockLogin?: () => Promise<boolean>): Promise<boolean> {
+  if (mockLogin) return mockLogin();
+
+  const { setupTokenFlow } = await import("./auth.js");
+  const result = await setupTokenFlow();
   if (!result.success) {
     console.log(result.message);
     return false;

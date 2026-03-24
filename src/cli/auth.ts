@@ -521,6 +521,67 @@ export async function refreshFlow(options?: {
   };
 }
 
+// --- Setup Token flow ---
+
+/**
+ * Validate that a token looks like a valid OAuth setup token.
+ */
+export function isValidSetupToken(token: string): boolean {
+  return token.startsWith("sk-ant-oat01-") && token.length >= 80;
+}
+
+/**
+ * Setup-token flow: user runs `claude setup-token` externally,
+ * then pastes the generated long-lived token here.
+ */
+export async function setupTokenFlow(options?: {
+  tokenPath?: string;
+  readInput?: () => Promise<string>;
+}): Promise<FlowResult> {
+  const tokenPath = options?.tokenPath ?? DEFAULT_TOKEN_PATH;
+
+  console.log("\nRun 'claude setup-token' in another terminal, then paste the generated token here:");
+
+  let token: string;
+  if (options?.readInput) {
+    token = (await options.readInput()).trim();
+  } else {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    token = await new Promise<string>((resolve) => {
+      rl.question("> ", (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    });
+  }
+
+  if (!isValidSetupToken(token)) {
+    return {
+      success: false,
+      message:
+        "Invalid token format. Expected a token starting with 'sk-ant-oat01-' (at least 80 characters).\n" +
+        "Run 'claude setup-token' to generate one.",
+    };
+  }
+
+  // Save as OAuth credentials (no refresh token — setup tokens are long-lived)
+  const credentials: OAuthCredentials = {
+    version: 1,
+    accessToken: token,
+    refreshToken: "none",   // setup tokens don't have a refresh token
+    // Setup tokens are long-lived; set a far-future expiry
+    expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+    scopes: ["user:inference"],
+  };
+
+  await writeTokens(tokenPath, credentials);
+
+  return {
+    success: true,
+    message: "Token validated! Saved successfully.",
+  };
+}
+
 // --- Commander registration ---
 
 export function registerAuthCommands(program: Command): void {
@@ -543,6 +604,15 @@ export function registerAuthCommands(program: Command): void {
         console.log(result.message);
         process.exitCode = result.success ? 0 : 1;
       }
+    });
+
+  auth
+    .command("setup-token")
+    .description("Authenticate by pasting a token from 'claude setup-token'")
+    .action(async () => {
+      const result = await setupTokenFlow();
+      console.log(result.message);
+      process.exitCode = result.success ? 0 : 1;
     });
 
   auth

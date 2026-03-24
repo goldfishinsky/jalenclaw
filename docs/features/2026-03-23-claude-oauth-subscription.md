@@ -4,7 +4,7 @@
 让 JalenClaw 能通过 Claude Pro/Max 订阅（OAuth token）调用 Claude API，而不仅支持 API Key。
 
 ## 当前状态
-🟡 进行中 — OAuth 登录流程已完成，Haiku 4.5 可用，Sonnet 4.6 被限制
+🟢 已实现 — setup-token 流程已完成，Bearer + beta headers，默认模型 claude-sonnet-4-6
 
 ---
 
@@ -118,16 +118,20 @@ if (supportsAdaptiveThinking(model.id)) {
 ## 当前方案
 
 ### 已实现（可用）
-1. OAuth 登录：`jalenclaw auth login` — 打开浏览器，固定端口 53692 回调，JSON body token 交换
-2. Claude Code 导入：`jalenclaw auth login --import` — 从 Keychain/文件导入
-3. Token 刷新：`jalenclaw auth refresh` — 自动刷新或重新导入
-4. API 调用：默认 Haiku 4.5（`x-api-key` 模式）
+1. **Setup Token（推荐）**：`jalenclaw auth setup-token` — 用户运行 `claude setup-token` 获取长期 token，粘贴即可
+2. OAuth 登录：`jalenclaw auth login` — 打开浏览器，固定端口 53692 回调，JSON body token 交换
+3. Claude Code 导入：`jalenclaw auth login --import` — 从 Keychain/文件导入
+4. Token 刷新：`jalenclaw auth refresh` — 自动刷新或重新导入
+5. **Bearer + Beta Headers**：OAuth token 使用 `authToken`（Bearer）+ 完整 beta headers（与 OpenClaw/Pi-AI SDK 一致）
+6. **默认模型**：`claude-sonnet-4-6`（有订阅配额时可用），回退到 `claude-haiku-4-5-20251001`
 
-### 待解决（Sonnet 4.6）
-- 需要确认 `invalid_request_error: Error` 是配额问题还是权限问题
-- 尝试在配额刷新后重试
-- 考虑用 `Bearer` + Pi-AI beta headers 作为 Claude provider 的 OAuth 模式
-- 需要实现 Pi-AI SDK 完全一致的请求头和参数
+### Setup Token 方案说明
+OpenClaw 使用 `claude setup-token` 获取长期 token，避免了 OAuth 浏览器流程的复杂性。关键发现：
+- Token 格式：`sk-ant-oat01-...`（至少 80 字符）
+- 必须使用 `authToken`（Bearer）而不是 `apiKey`（x-api-key）
+- 必须附带 beta headers：`claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14`
+- 必须附带 `anthropic-dangerous-direct-browser-access: true`
+- 必须伪装为 `claude-cli/2.1.76`（user-agent + x-app: cli）
 
 ---
 
@@ -142,7 +146,7 @@ if (supportsAdaptiveThinking(model.id)) {
 | `src/auth/oauth.ts` | OAuthStrategy（token 刷新 + 熔断） |
 | `src/auth/oauth-server.ts` | 本地回调服务器（支持固定端口） |
 | `src/auth/token-store.ts` | Token 文件读写 |
-| `src/auth/bearer.ts` | BearerTokenStrategy（目前未使用） |
+| `src/auth/bearer.ts` | BearerTokenStrategy（OAuth/setup-token 使用） |
 | `openclaw-ref/` | OpenClaw 源码参考 |
 | `/tmp/pi-ai-inspect/` | Pi-AI SDK 解包分析 |
 

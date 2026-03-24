@@ -15,6 +15,8 @@ import {
   refreshTokens,
   generatePkce,
   buildAuthorizeUrl,
+  setupTokenFlow,
+  isValidSetupToken,
 } from "../../../src/cli/auth.js";
 import { readTokens, writeTokens, type OAuthCredentials } from "../../../src/auth/token-store.js";
 
@@ -390,6 +392,64 @@ describe("cli/auth", () => {
       await writeTokens(tokenPath, validTokens);
       const result = await statusFlow({ tokenPath });
       expect(result.tokenSource).toBe("claude-code-import");
+    });
+  });
+
+  describe("isValidSetupToken", () => {
+    it("accepts valid setup tokens", () => {
+      const token = "sk-ant-oat01-" + "a".repeat(80);
+      expect(isValidSetupToken(token)).toBe(true);
+    });
+
+    it("rejects tokens without correct prefix", () => {
+      expect(isValidSetupToken("sk-ant-api01-" + "a".repeat(80))).toBe(false);
+    });
+
+    it("rejects tokens that are too short", () => {
+      expect(isValidSetupToken("sk-ant-oat01-short")).toBe(false);
+    });
+
+    it("rejects empty string", () => {
+      expect(isValidSetupToken("")).toBe(false);
+    });
+  });
+
+  describe("setupTokenFlow", () => {
+    it("saves valid setup token", async () => {
+      const token = "sk-ant-oat01-" + "a".repeat(80);
+      const result = await setupTokenFlow({
+        tokenPath,
+        readInput: async () => token,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("Token validated");
+
+      const stored = await readTokens(tokenPath);
+      expect(stored).not.toBeNull();
+      expect(stored!.accessToken).toBe(token);
+    });
+
+    it("rejects invalid token", async () => {
+      const result = await setupTokenFlow({
+        tokenPath,
+        readInput: async () => "invalid-token",
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Invalid token format");
+    });
+
+    it("trims whitespace from pasted token", async () => {
+      const token = "sk-ant-oat01-" + "b".repeat(80);
+      const result = await setupTokenFlow({
+        tokenPath,
+        readInput: async () => `  ${token}  \n`,
+      });
+
+      expect(result.success).toBe(true);
+      const stored = await readTokens(tokenPath);
+      expect(stored!.accessToken).toBe(token);
     });
   });
 

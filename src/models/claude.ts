@@ -1,6 +1,6 @@
 /**
  * Claude LLM provider using the official Anthropic SDK.
- * Supports both API key auth and OAuth token auth.
+ * Supports both API key auth and OAuth token auth (setup-token / Bearer).
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { AuthStrategy } from "../auth/strategy.js";
@@ -12,6 +12,23 @@ import type {
   LLMProviderOptions,
 } from "./interface.js";
 
+/** Beta headers required for OAuth token access (matches Claude CLI / Pi-AI SDK). */
+const OAUTH_BETA_HEADERS = {
+  "anthropic-dangerous-direct-browser-access": "true",
+  "anthropic-beta":
+    "claude-code-20250219,oauth-2025-04-20,fine-grained-tool-streaming-2025-05-14",
+  "user-agent": "claude-cli/2.1.76",
+  "x-app": "cli",
+};
+
+/** Check whether a token / header set indicates an OAuth (setup-token) flow. */
+function isOAuthHeaders(headers: Record<string, string>): boolean {
+  return (
+    !!headers["Authorization"]?.startsWith("Bearer") ||
+    !!headers["X-Api-Key"]?.includes("sk-ant-oat")
+  );
+}
+
 export class ClaudeProvider implements LLMProvider {
   readonly name = "claude";
   private readonly authStrategy: AuthStrategy;
@@ -21,7 +38,7 @@ export class ClaudeProvider implements LLMProvider {
 
   constructor(authStrategy: AuthStrategy, options?: LLMProviderOptions) {
     this.authStrategy = authStrategy;
-    this.model = options?.model ?? "claude-haiku-4-5-20251001";
+    this.model = options?.model ?? "claude-sonnet-4-6";
     this.timeout = options?.timeout ?? 120;
     this.baseUrl = options?.baseUrl ?? "https://api.anthropic.com";
   }
@@ -29,18 +46,27 @@ export class ClaudeProvider implements LLMProvider {
   async *chat(messages: Message[], tools?: Tool[]): AsyncIterable<Chunk> {
     const headers = await this.authStrategy.getHeaders();
 
-    // Determine if this is OAuth (Bearer) or API key auth
-    const isOAuth = !!headers["Authorization"];
+    // Build the Anthropic client – OAuth tokens need Bearer + beta headers
+    const isOAuth = isOAuthHeaders(headers);
 
-    const client = isOAuth
-      ? new Anthropic({
-          authToken: headers["Authorization"].replace("Bearer ", ""),
-          baseURL: this.baseUrl,
-        })
-      : new Anthropic({
-          apiKey: headers["X-Api-Key"] ?? "",
-          baseURL: this.baseUrl,
-        });
+    let client: Anthropic;
+    if (isOAuth) {
+      const token =
+        headers["Authorization"]?.replace("Bearer ", "") ??
+        headers["X-Api-Key"];
+      client = new Anthropic({
+        apiKey: "",          // SDK requires a string; we override with authToken
+        authToken: token,
+        baseURL: this.baseUrl,
+        dangerouslyAllowBrowser: true,
+        defaultHeaders: OAUTH_BETA_HEADERS,
+      });
+    } else {
+      client = new Anthropic({
+        apiKey: headers["X-Api-Key"] ?? "",
+        baseURL: this.baseUrl,
+      });
+    }
 
     const toolDefs = tools?.length
       ? tools.map((t) => ({
@@ -52,7 +78,7 @@ export class ClaudeProvider implements LLMProvider {
 
     const stream = client.messages.stream({
       model: this.model,
-      max_tokens: 4096,
+      max_tokens: 16384,
       messages: messages
         .filter((m) => m.role !== "system")
         .map((m) => ({

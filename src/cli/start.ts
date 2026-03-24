@@ -24,6 +24,7 @@ import { OpenAIProvider } from "../models/openai.js";
 import { DeepSeekProvider } from "../models/deepseek.js";
 import { OllamaProvider } from "../models/ollama.js";
 import { ApiKeyStrategy } from "../auth/apikey.js";
+import { BearerTokenStrategy } from "../auth/bearer.js";
 import { readTokens } from "../auth/token-store.js";
 import type { AuthStrategy } from "../auth/strategy.js";
 import { homedir } from "node:os";
@@ -119,10 +120,14 @@ async function buildProviders(config: JalenClawConfig, logger: Logger): Promise<
       const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
       const tokens = await readTokens(tokenPath);
       if (tokens) {
-        // OAuth token is used as x-api-key (this is how Pi-AI SDK does it)
-        authStrategy = new ApiKeyStrategy(tokens.accessToken);
+        // OAuth / setup-token: use Bearer strategy for sk-ant-oat tokens
+        const isOAuthToken = tokens.accessToken.includes("sk-ant-oat");
+        authStrategy = isOAuthToken
+          ? new BearerTokenStrategy(tokens.accessToken)
+          : new ApiKeyStrategy(tokens.accessToken);
         logger.info("claude-oauth-loaded", {
           tokenPath,
+          authMode: isOAuthToken ? "bearer" : "apikey",
           expiresAt: new Date(tokens.expiresAt).toISOString(),
         });
       } else {
