@@ -9,6 +9,14 @@
 - **实施计划**: `docs/superpowers/plans/` (按步骤编号)
 - **进度追踪**: `docs/progress.md` — 每完成一个步骤必须更新
 
+## Feature 文档驱动开发
+
+- 每个功能/调查/bugfix 必须有对应的 `docs/features/<date>-<name>.md` 文档
+- 开发前先查 `docs/features/` 找已有文档，读完再动手
+- 文档记录：目标、当前状态、关键发现、已尝试方案（含失败原因）、当前方案
+- 每次关键发现或方案切换立刻更新文档，不要等做完
+- 详细规则见 `.claude/rules/feature-tracking.md`
+
 ## 自主开发模式
 
 - 不要问用户"下一步做什么"或"要继续哪个方向"——按照设计文档自主推进所有模块
