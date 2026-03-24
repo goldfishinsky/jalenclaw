@@ -314,6 +314,7 @@ export async function oauthLoginFlow(options?: {
     }
 
     // 5. Exchange code for tokens
+    console.log("Exchanging authorization code for tokens...");
     const tokens = await exchangeCodeForTokens(code, codeVerifier, {
       tokenUrl: options?.tokenUrl,
     });
