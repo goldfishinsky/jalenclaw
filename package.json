@@ -32,9 +32,11 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
     "@inquirer/prompts": "^8.3.2",
+    "@slack/bolt": "^4.6.0",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "better-sqlite3": "^12.8.0",
     "commander": "^14.0.3",
+    "discord.js": "^14.25.1",
     "grammy": "^1.41.1",
     "pino": "^10.3.1",
     "ws": "^8.19.0",
