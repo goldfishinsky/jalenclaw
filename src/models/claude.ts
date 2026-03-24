@@ -21,7 +21,7 @@ export class ClaudeProvider implements LLMProvider {
 
   constructor(authStrategy: AuthStrategy, options?: LLMProviderOptions) {
     this.authStrategy = authStrategy;
-    this.model = options?.model ?? "claude-sonnet-4-20250514";
+    this.model = options?.model ?? "claude-3-haiku-20240307";
     this.timeout = options?.timeout ?? 120;
     this.baseUrl = options?.baseUrl ?? "https://api.anthropic.com";
   }
