@@ -48,13 +48,13 @@ describe("OAuthStrategy", () => {
       await writeTokens(tokenPath, validTokens);
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
 
       const headers = await strategy.getHeaders();
       expect(headers).toEqual({
-        Authorization: "Bearer sk-ant-oat01-valid",
+        "x-api-key": "sk-ant-oat01-valid",
       });
     });
 
@@ -71,13 +71,13 @@ describe("OAuthStrategy", () => {
 
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
 
       const headers = await strategy.getHeaders();
       expect(headers).toEqual({
-        Authorization: "Bearer sk-ant-oat01-refreshed",
+        "x-api-key": "sk-ant-oat01-refreshed",
       });
       expect(mockFetch).toHaveBeenCalledOnce();
     });
@@ -91,7 +91,7 @@ describe("OAuthStrategy", () => {
 
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
 
@@ -101,7 +101,7 @@ describe("OAuthStrategy", () => {
     it("throws when no tokens exist", async () => {
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
 
@@ -114,7 +114,7 @@ describe("OAuthStrategy", () => {
       await writeTokens(tokenPath, validTokens);
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
       expect(await strategy.isValid()).toBe(true);
@@ -123,7 +123,7 @@ describe("OAuthStrategy", () => {
     it("returns false when no token file", async () => {
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
       expect(await strategy.isValid()).toBe(false);
@@ -137,7 +137,7 @@ describe("OAuthStrategy", () => {
 
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
 
@@ -160,7 +160,7 @@ describe("OAuthStrategy", () => {
 
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
         circuitBreakerCooldownMs: 1000,
       });
@@ -198,12 +198,12 @@ describe("OAuthStrategy", () => {
 
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test-client",
       });
 
       const headers = await strategy.getHeaders();
-      expect(headers.Authorization).toBe("Bearer sk-ant-oat01-proactive");
+      expect(headers["x-api-key"]).toBe("sk-ant-oat01-proactive");
     });
   });
 });

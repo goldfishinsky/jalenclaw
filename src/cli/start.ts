@@ -24,7 +24,6 @@ import { OpenAIProvider } from "../models/openai.js";
 import { DeepSeekProvider } from "../models/deepseek.js";
 import { OllamaProvider } from "../models/ollama.js";
 import { ApiKeyStrategy } from "../auth/apikey.js";
-import { BearerTokenStrategy } from "../auth/bearer.js";
 import { readTokens } from "../auth/token-store.js";
 import type { AuthStrategy } from "../auth/strategy.js";
 import { homedir } from "node:os";
@@ -116,14 +115,12 @@ async function buildProviders(config: JalenClawConfig, logger: Logger): Promise<
     if (claudeConfig.authType === "apikey") {
       authStrategy = new ApiKeyStrategy(claudeConfig.apiKey);
     } else {
-      // OAuth: read token from JalenClaw's token store (imported from Claude Code CLI)
+      // OAuth: read token from JalenClaw's token store
       const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
       const tokens = await readTokens(tokenPath);
       if (tokens) {
-        // Use BearerTokenStrategy directly with the access token instead of
-        // OAuthStrategy, since the Claude Code OAuth flow doesn't expose a
-        // refresh endpoint we can call ourselves.
-        authStrategy = new BearerTokenStrategy(tokens.accessToken);
+        // OAuth token is used as x-api-key (this is how Pi-AI SDK does it)
+        authStrategy = new ApiKeyStrategy(tokens.accessToken);
         logger.info("claude-oauth-loaded", {
           tokenPath,
           expiresAt: new Date(tokens.expiresAt).toISOString(),

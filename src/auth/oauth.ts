@@ -54,7 +54,7 @@ export class OAuthStrategy implements AuthStrategy {
       tokens = await this.refreshTokens(tokens);
     }
 
-    return { Authorization: `Bearer ${tokens.accessToken}` };
+    return { "x-api-key": tokens.accessToken };
   }
 
   async isValid(): Promise<boolean> {
@@ -101,12 +101,15 @@ export class OAuthStrategy implements AuthStrategy {
     try {
       const response = await fetch(this.tokenEndpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: JSON.stringify({
           grant_type: "refresh_token",
-          refresh_token: current.refreshToken,
           client_id: this.clientId,
-        }).toString(),
+          refresh_token: current.refreshToken,
+        }),
       });
 
       if (!response.ok) {

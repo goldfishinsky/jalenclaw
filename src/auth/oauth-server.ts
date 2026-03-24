@@ -14,6 +14,7 @@ export interface CallbackServer {
 
 interface CallbackServerOptions {
   timeoutMs?: number;
+  port?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -62,7 +63,9 @@ export async function startCallbackServer(
       if (timeoutId) clearTimeout(timeoutId);
     });
 
-    server.listen(0, "127.0.0.1", () => {
+    const listenPort = options?.port ?? 0;
+
+    server.listen(listenPort, "127.0.0.1", () => {
       const addr = server.address();
       if (!addr || typeof addr === "string") {
         rejectStart(new Error("Failed to get server address"));

@@ -25,6 +25,16 @@ describe("oauth-server", () => {
       );
     });
 
+    it("starts a server on a specified fixed port", async () => {
+      // Use a high random port to avoid conflicts
+      const fixedPort = 49152 + Math.floor(Math.random() * 1000);
+      server = await startCallbackServer({ port: fixedPort });
+      expect(server.port).toBe(fixedPort);
+      expect(server.redirectUri).toBe(
+        `http://127.0.0.1:${fixedPort}/callback`,
+      );
+    });
+
     it("resolves authorization code on callback", async () => {
       server = await startCallbackServer();
       const codePromise = server.waitForCode();

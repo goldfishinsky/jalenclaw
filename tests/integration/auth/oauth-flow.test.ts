@@ -55,11 +55,11 @@ describe("OAuth flow integration", () => {
 
       const strategy = new OAuthStrategy({
         tokenPath,
-        tokenEndpoint: "https://claude.ai/oauth/token",
+        tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
         clientId: "test",
       });
       const headers = await strategy.getHeaders();
-      expect(headers.Authorization).toBe("Bearer sk-ant-oat01-integration");
+      expect(headers["x-api-key"]).toBe("sk-ant-oat01-integration");
     } finally {
       vi.unstubAllGlobals();
       await server.close();
@@ -90,11 +90,11 @@ describe("OAuth flow integration", () => {
 
     const oauthStrategy = new OAuthStrategy({
       tokenPath,
-      tokenEndpoint: "https://claude.ai/oauth/token",
+      tokenEndpoint: "https://platform.claude.com/v1/oauth/token",
       clientId: "test",
     });
     expect(await oauthStrategy.getHeaders()).toEqual({
-      Authorization: "Bearer sk-ant-oat01-test",
+      "x-api-key": "sk-ant-oat01-test",
     });
     expect(await oauthStrategy.isValid()).toBe(true);
   });

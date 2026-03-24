@@ -4,7 +4,6 @@ import { writeFile, mkdir, access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
-import { readTokens } from "../auth/token-store.js";
 
 const CONFIG_DIR = join(homedir(), ".jalenclaw");
 const CONFIG_PATH = join(CONFIG_DIR, "jalenclaw.yml");
@@ -170,18 +169,14 @@ export async function runSetupWizard(options?: {
     });
 
     if (authMethod === "oauth") {
-      console.log("\n\u{1F510} Importing Claude Code credentials...\n");
+      console.log("\n\u{1F510} Starting Claude OAuth login...\n");
       const success = await doOAuthLogin(options?.onOAuthLogin);
       if (!success) {
-        console.log("\n\u274C No Claude Code credentials found.");
-        console.log("Please log in to Claude Code first:");
-        console.log("  1. Install: npm install -g @anthropic-ai/claude-code");
-        console.log("  2. Run: claude");
-        console.log("  3. Complete the login in your browser");
-        console.log("  4. Then re-run: jalenclaw\n");
+        console.log("\n\u274C OAuth login failed.");
+        console.log("Please try again or use an API key instead.\n");
         process.exit(1);
       }
-      console.log("\u2705 Claude Code credentials imported!\n");
+      console.log("\u2705 Authentication successful!\n");
     } else {
       apiKey = await password({
         message: "Enter your Anthropic API key:",
@@ -246,11 +241,13 @@ export async function runSetupWizard(options?: {
 async function doOAuthLogin(mockLogin?: () => Promise<boolean>): Promise<boolean> {
   if (mockLogin) return mockLogin();
 
-  const { loginFlow } = await import("./auth.js");
-  const result = await loginFlow();
-  if (!result.success) return false;
+  const { oauthLoginFlow } = await import("./auth.js");
+  const result = await oauthLoginFlow();
+  if (!result.success) {
+    console.log(result.message);
+    return false;
+  }
 
-  const tokenPath = join(homedir(), ".jalenclaw", "auth", "oauth-credentials.json");
-  const tokens = await readTokens(tokenPath);
-  return tokens !== null;
+  console.log(result.message);
+  return true;
 }
