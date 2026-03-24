@@ -31,18 +31,16 @@ export class ClaudeProvider implements LLMProvider {
 
     // Determine if this is OAuth (Bearer) or API key auth
     const isOAuth = !!headers["Authorization"];
-    const apiKey = isOAuth
-      ? headers["Authorization"].replace("Bearer ", "")
-      : headers["X-Api-Key"] ?? "";
 
-    const client = new Anthropic({
-      apiKey,
-      baseURL: this.baseUrl,
-      // For OAuth tokens, send as Authorization: Bearer instead of X-Api-Key
-      ...(isOAuth
-        ? { defaultHeaders: { Authorization: headers["Authorization"] } }
-        : {}),
-    });
+    const client = isOAuth
+      ? new Anthropic({
+          authToken: headers["Authorization"].replace("Bearer ", ""),
+          baseURL: this.baseUrl,
+        })
+      : new Anthropic({
+          apiKey: headers["X-Api-Key"] ?? "",
+          baseURL: this.baseUrl,
+        });
 
     const toolDefs = tools?.length
       ? tools.map((t) => ({
